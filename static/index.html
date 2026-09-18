@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Qwen3-TTS 1.7B · Text thành giọng nói</title>
+  <style>
+    :root { color-scheme: dark; --bg: #0f1115; --card: #181b22; --line: #2a2f3a; --text: #e8eaed; --muted: #9aa3b2; --accent: #7c5cff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, Segoe UI, sans-serif; background: var(--bg); color: var(--text); }
+    main { max-width: 760px; margin: 40px auto; padding: 0 20px; }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    p.sub { color: var(--muted); margin: 0 0 24px; }
+    form, .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin: 14px 0 6px; }
+    input, textarea, select { width: 100%; background: #101318; color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+    textarea { min-height: 110px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .hint { font-size: 0.75rem; color: var(--muted); margin: 4px 0 0; }
+    .speaker-meta { font-size: 0.8rem; color: #c4b5ff; margin-top: 6px; }
+    button { margin-top: 18px; width: 100%; border: 0; border-radius: 10px; padding: 12px; background: var(--accent); color: white; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    #status { margin-top: 16px; color: var(--muted); white-space: pre-wrap; }
+    audio { width: 100%; margin-top: 16px; display: none; }
+    a.docs { color: #b9a8ff; }
+    details { margin-top: 12px; }
+    summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Qwen3-TTS 1.7B · Text thành giọng nói</h1>
+    <p class="sub">
+      CustomVoice t2s, 10 ngôn ngữ. Model tự nhận ngôn ngữ khi chọn Auto.
+      API: <a class="docs" href="/docs">/docs</a>
+    </p>
+    <form id="form">
+      <label>Nội dung (text)</label>
+      <textarea name="text" required>Xin chào, đây là giọng nói đa ngôn ngữ từ Qwen3-TTS. Hello, this is a multilingual text-to-speech demo.</textarea>
+      <p class="hint">Hỗ trợ Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian. Tiếng Việt: để Auto.</p>
+
+      <div class="row">
+        <div>
+          <label>Ngôn ngữ</label>
+          <select name="language" id="language"></select>
+          <p class="hint">Auto = model tự nhận. Biết rõ ngôn ngữ thì chọn cụ thể sẽ ổn định hơn.</p>
+        </div>
+        <div>
+          <label>Giọng (speaker)</label>
+          <select name="speaker" id="speaker"></select>
+          <p class="speaker-meta" id="speaker-meta"></p>
+        </div>
+      </div>
+
+      <label>Chỉ dẫn giọng (instruct, tùy chọn)</label>
+      <textarea name="instruct" placeholder="Ví dụ: Nói chậm, ấm áp, hơi vui. Speak gently and happily."></textarea>
+      <p class="hint">1.7B CustomVoice điều khiển cảm xúc / tốc độ / phong cách bằng câu tự nhiên. Để trống = giọng tự nhiên.</p>
+
+      <details>
+        <summary>Tham số sinh (generate)</summary>
+        <div class="row-3">
+          <div>
+            <label>Temperature</label>
+            <input type="number" name="temperature" value="0.9" min="0" max="2" step="0.05" />
+          </div>
+          <div>
+            <label>Top-p</label>
+            <input type="number" name="top_p" value="1" min="0.01" max="1" step="0.01" />
+          </div>
+          <div>
+            <label>Top-k</label>
+            <input type="number" name="top_k" value="50" min="0" step="1" />
+          </div>
+        </div>
+        <div class="row-3">
+          <div>
+            <label>Max new tokens</label>
+            <input type="number" name="max_new_tokens" value="2048" min="64" max="8192" step="64" />
+            <p class="hint">Đoạn dài thì tăng, tối đa 8192.</p>
+          </div>
+          <div>
+            <label>Repetition penalty</label>
+            <input type="number" name="repetition_penalty" value="1.05" min="0.5" max="2" step="0.01" />
+          </div>
+          <div>
+            <label>Seed</label>
+            <input type="number" name="seed" value="42" />
+          </div>
+        </div>
+      </details>
+
+      <button type="submit" id="btn">Tạo giọng nói</button>
+    </form>
+    <p id="status"></p>
+    <audio id="player" controls></audio>
+  </main>
+  <script>
+    const SPEAKERS = [
+      { id: "Vivian", description: "Giọng nữ trẻ, sáng, hơi sắc.", native_language: "Chinese" },
+      { id: "Serena", description: "Giọng nữ trẻ, ấm, dịu.", native_language: "Chinese" },
+      { id: "Uncle_Fu", description: "Giọng nam trưởng thành, trầm, ấm.", native_language: "Chinese" },
+      { id: "Dylan", description: "Giọng nam Bắc Kinh, trẻ, tự nhiên.", native_language: "Chinese (Beijing)" },
+      { id: "Eric", description: "Giọng nam Thành Đô, sống động, hơi khàn.", native_language: "Chinese (Sichuan)" },
+      { id: "Ryan", description: "Giọng nam năng động, nhịp điệu rõ.", native_language: "English" },
+      { id: "Aiden", description: "Giọng nam Mỹ, trong, trung âm.", native_language: "English" },
+      { id: "Ono_Anna", description: "Giọng nữ Nhật, vui, nhẹ.", native_language: "Japanese" },
+      { id: "Sohee", description: "Giọng nữ Hàn, ấm, giàu cảm xúc.", native_language: "Korean" }
+    ];
+    const LANGUAGES = ["Auto", "Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"];
+
+    const form = document.getElementById("form");
+    const statusEl = document.getElementById("status");
+    const btn = document.getElementById("btn");
+    const player = document.getElementById("player");
+    const languageEl = document.getElementById("language");
+    const speakerEl = document.getElementById("speaker");
+    const speakerMeta = document.getElementById("speaker-meta");
+
+    function fillSelects(voices) {
+      const langs = voices?.languages?.length ? voices.languages : LANGUAGES;
+      const speakers = voices?.speakers?.length ? voices.speakers : SPEAKERS;
+      languageEl.innerHTML = langs.map((lang) => `<option value="${lang}">${lang}</option>`).join("");
+      speakerEl.innerHTML = speakers.map((s) => {
+        const id = s.id || s;
+        return `<option value="${id}">${id}</option>`;
+      }).join("");
+      languageEl.value = "Auto";
+      speakerEl.value = "Vivian";
+      updateSpeakerMeta(speakers);
+    }
+
+    function updateSpeakerMeta(speakers) {
+      const list = speakers || SPEAKERS;
+      const current = list.find((s) => (s.id || s) === speakerEl.value);
+      if (!current || typeof current === "string") {
+        speakerMeta.textContent = "";
+        return;
+      }
+      speakerMeta.textContent = current.description + " · native: " + current.native_language;
+    }
+
+    function playableUrl(url) {
+      try {
+        const parsed = new URL(url, window.location.origin);
+        if (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost") {
+          return parsed.pathname + parsed.search;
+        }
+        return url;
+      } catch {
+        return url;
+      }
+    }
+
+    fillSelects();
+    speakerEl.addEventListener("change", () => updateSpeakerMeta());
+
+    fetch("/api/v1/voices")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => { if (data) fillSelects(data); })
+      .catch(() => {});
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      btn.disabled = true;
+      player.style.display = "none";
+      statusEl.textContent = "Đang xếp hàng text-to-speech…";
+      const data = new FormData(form);
+      if (!(data.get("instruct") || "").trim()) data.delete("instruct");
+      try {
+        const res = await fetch("/api/v1/jobs", { method: "POST", body: data });
+        const job = await res.json();
+        if (!res.ok) throw new Error(job.detail || JSON.stringify(job));
+        statusEl.textContent =
+          "Đã xếp hàng " + job.job_id +
+          "\nt2s · " + job.speaker + " · " + job.language +
+          "\nĐang chờ audio_url…";
+        const done = await poll(job.job_id);
+        if (done.status !== "succeeded") throw new Error(done.error || done.status);
+        statusEl.textContent =
+          "Xong.\n" + done.speaker + " · " + done.language +
+          (done.duration_seconds ? " · " + done.duration_seconds + "s" : "") +
+          "\naudio_url: " + playableUrl(done.audio_url);
+        player.src = playableUrl(done.audio_url);
+        player.style.display = "block";
+        player.play().catch(() => {});
+      } catch (err) {
+        statusEl.textContent = "Lỗi: " + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    async function poll(id) {
+      while (true) {
+        const res = await fetch(`/api/v1/jobs/${id}`);
+        const job = await res.json();
+        statusEl.textContent =
+          "Job " + id +
+          "\ntrạng thái: " + job.status +
+          "\n" + job.speaker + " · " + job.language +
+          (job.audio_url ? "\naudio_url: " + playableUrl(job.audio_url) : "");
+        if (job.status === "succeeded" || job.status === "failed") return job;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+  </script>
+</body>
+</html>

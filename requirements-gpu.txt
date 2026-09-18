@@ -1,0 +1,9 @@
+-r requirements.txt
+
+# Install CUDA torch first (Python 3.12 recommended by Qwen3-TTS), then:
+#   python -m pip install -U qwen-tts
+#
+# Optional, if the GPU supports it:
+#   pip install -U flash-attn --no-build-isolation
+
+qwen-tts
