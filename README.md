@@ -98,12 +98,17 @@ Open http://127.0.0.1:8000 — submit text, get a placeholder wav URL.
 
 ### B. Real Qwen3-TTS 1.7B CustomVoice
 
+Same CUDA 12 wheels as the working LTX setup (`cu121`). Install torch + torchaudio first, then `qwen-tts`, then pin torch again so PyPI does not leave CUDA 13 torchaudio (`libcudart.so.13`).
+
 ```powershell
-python -m pip install torch --index-url https://download.pytorch.org/whl/cu124
+python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 python -m pip install -U qwen-tts
-python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+python -m pip install --force-reinstall --no-deps torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+python -c "import torch, torchaudio; print(torch.__version__, torchaudio.__version__, torch.version.cuda, torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
 python scripts/download_models.py
 ```
+
+On Linux also install SoX: `sudo apt-get install -y sox libsox-fmt-all`.
 
 If you download weights locally, set `TTS_MODEL_ID` to that folder, for example `models/Qwen3-TTS-12Hz-1.7B-CustomVoice`. Otherwise the Hugging Face id is used and weights download on first load.
 
