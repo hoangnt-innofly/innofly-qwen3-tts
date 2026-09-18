@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     tts_device_map: str = "auto"
     tts_dtype: str = "bfloat16"
     tts_attn_implementation: str = "sdpa"
+    # After each job, park weights in RAM so the 12GB card is free for LTX/Comfy.
+    # Generate still runs on GPU. Set 0 only if TTS owns the GPU.
+    tts_free_vram: bool = True
 
     tts_default_language: str = DEFAULT_LANGUAGE
     tts_default_speaker: str = DEFAULT_SPEAKER

@@ -148,6 +148,15 @@ class JobService:
         except Exception:
             pass
 
+    def free_vram(self) -> dict:
+        """Park TTS weights off GPU so Comfy/LTX can use the 12GB card."""
+        with self._engine_lock:
+            if self._engine is not None:
+                self._engine.release_vram()
+            else:
+                self._free_cuda()
+        return {"freed": True}
+
     def cuda_info(self) -> tuple[bool, str | None]:
         try:
             import torch
@@ -215,6 +224,7 @@ class JobService:
                     device_map=self.settings.tts_device_map,
                     dtype=self.settings.tts_dtype,
                     attn_implementation=self.settings.tts_attn_implementation,
+                    free_vram=self.settings.tts_free_vram,
                 )
                 try:
                     self._engine.load()

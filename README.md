@@ -13,7 +13,7 @@ Submit text + speaker + language. Response includes `audio_url` (WAV).
 | Languages | Auto, Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian |
 | Speakers | Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, Sohee |
 | Instruct | natural-language style / emotion (1.7B only) |
-| VRAM | ~4 GB BF16 |
+| VRAM | ~4 GB BF16 while generating; released after each job (`TTS_FREE_VRAM=1`) |
 
 Each speaker can speak any supported language. Native pairing is usually better (Ryan/Aiden → English, Vivian/Serena → Chinese, Ono_Anna → Japanese, Sohee → Korean).
 
@@ -25,6 +25,7 @@ Each speaker can speak any supported language. Native pairing is usually better 
 | `POST` | `/api/v1/jobs` | Same form, return immediately (`202`) |
 | `GET` | `/api/v1/jobs/{job_id}` | Poll until `status=succeeded` and `audio_url` is set |
 | `GET` | `/api/v1/voices` | Speakers + languages for the form |
+| `POST` | `/api/v1/free-memory` | Park weights off GPU (same idea as Comfy `free_memory`) |
 | `GET` | `/media/audio/{file}` | Stream the wav |
 | `GET` | `/health` | CUDA / mock / defaults |
 | `GET` | `/docs` | Swagger |

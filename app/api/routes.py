@@ -52,6 +52,7 @@ def health() -> HealthResponse:
             "device_map": settings.tts_device_map,
             "dtype": settings.tts_dtype,
             "attn_implementation": settings.tts_attn_implementation,
+            "free_vram": settings.tts_free_vram,
         },
     )
 
@@ -59,6 +60,12 @@ def health() -> HealthResponse:
 @router.get("/api/v1/voices", response_model=VoicesResponse)
 def list_voices() -> VoicesResponse:
     return VoicesResponse.model_validate(voices_payload())
+
+
+@router.post("/api/v1/free-memory")
+def free_memory() -> dict:
+    """Release TTS VRAM after use so other 12GB-card apps (Comfy, LTX) can run."""
+    return jobs.free_vram()
 
 
 @router.post("/api/v1/generate", response_model=JobResponse)

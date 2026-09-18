@@ -11,7 +11,7 @@
 # Optional, if the GPU supports it:
 #   pip install -U flash-attn --no-build-isolation
 #
-# Linux:
-#   sudo apt-get install -y sox libsox-fmt-all
+# Linux (apt, not pip) — Triton compiles driver.c on first CUDA run:
+#   sudo apt-get install -y sox libsox-fmt-all build-essential python3.11-dev
 
 qwen-tts
