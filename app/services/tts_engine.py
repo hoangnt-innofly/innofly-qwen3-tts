@@ -59,12 +59,15 @@ class TTSEngine:
                     attn,
                     self.free_vram,
                 )
-                self.model = Qwen3TTSModel.from_pretrained(
-                    self.model_id,
-                    device_map=device_map,
-                    dtype=dtype,
-                    attn_implementation=attn,
-                )
+                load_kwargs: dict[str, Any] = {
+                    "dtype": dtype,
+                    "attn_implementation": attn,
+                }
+                # device_map pins modules via accelerate; later .to(cpu)/.to(cuda)
+                # then leaves embeddings on CPU while input_ids go to CUDA.
+                if not self.free_vram:
+                    load_kwargs["device_map"] = device_map
+                self.model = Qwen3TTSModel.from_pretrained(self.model_id, **load_kwargs)
                 if self.free_vram:
                     self.release_vram()
                 self._ready = True
@@ -159,23 +162,48 @@ class TTSEngine:
         inner = self._inner_model()
         if inner is None:
             return
-        moved: set[int] = set()
-        targets = [inner]
-        for name in ("speech_tokenizer", "speaker_encoder"):
+
+        target = torch.device(device)
+
+        def move_module(mod: nn.Module) -> None:
+            if hasattr(mod, "hf_device_map"):
+                try:
+                    delattr(mod, "hf_device_map")
+                except Exception:
+                    mod.hf_device_map = {}
+            mod.to(target)
+
+        seen: set[int] = set()
+        stack: list[Any] = [inner]
+        for name in ("speech_tokenizer", "speaker_encoder", "talker"):
             obj = getattr(inner, name, None)
             if obj is not None:
-                targets.append(obj)
-        for obj in targets:
-            if obj is None or id(obj) in moved:
+                stack.append(obj)
+
+        for obj in stack:
+            if obj is None or id(obj) in seen:
                 continue
-            if isinstance(obj, nn.Module) or hasattr(obj, "to"):
+            seen.add(id(obj))
+            if isinstance(obj, nn.Module):
                 try:
-                    obj.to(device)
-                    moved.add(id(obj))
+                    move_module(obj)
                 except Exception as exc:
                     logger.warning("Could not move %s to %s: %s", type(obj).__name__, device, exc)
+            elif hasattr(obj, "to"):
+                try:
+                    obj.to(target)
+                except Exception as exc:
+                    logger.warning("Could not move %s to %s: %s", type(obj).__name__, device, exc)
+
+        for name, value in list(vars(inner).items()):
+            if torch.is_tensor(value) and value.device != target:
+                setattr(inner, name, value.to(target))
+
         if hasattr(wrapper, "device"):
-            wrapper.device = torch.device(device)
+            try:
+                wrapper.device = next(inner.parameters()).device
+            except (StopIteration, TypeError, AttributeError):
+                wrapper.device = target
 
     def _resolve_device_map(self, torch) -> str:
         requested = (self.device_map or "auto").strip()
