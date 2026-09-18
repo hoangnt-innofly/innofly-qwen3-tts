@@ -28,7 +28,6 @@ class TTSEngine:
         self.attn_implementation = attn_implementation
         self.free_vram = free_vram
         self.model = None
-        self._compute_device = "cpu"
         self._ready = False
 
     @property
@@ -44,7 +43,6 @@ class TTSEngine:
 
         self.free_vram = self.free_vram and torch.cuda.is_available()
         device_map = self._resolve_device_map(torch)
-        self._compute_device = device_map
         dtype = self._resolve_dtype(torch, device_map)
         attn_candidates = self._attn_candidates()
 
@@ -59,17 +57,12 @@ class TTSEngine:
                     attn,
                     self.free_vram,
                 )
-                load_kwargs: dict[str, Any] = {
-                    "dtype": dtype,
-                    "attn_implementation": attn,
-                }
-                # device_map pins modules via accelerate; later .to(cpu)/.to(cuda)
-                # then leaves embeddings on CPU while input_ids go to CUDA.
-                if not self.free_vram:
-                    load_kwargs["device_map"] = device_map
-                self.model = Qwen3TTSModel.from_pretrained(self.model_id, **load_kwargs)
-                if self.free_vram:
-                    self.release_vram()
+                self.model = Qwen3TTSModel.from_pretrained(
+                    self.model_id,
+                    device_map=device_map,
+                    dtype=dtype,
+                    attn_implementation=attn,
+                )
                 self._ready = True
                 logger.info("Qwen3-TTS CustomVoice ready (%s)", self._vram_log())
                 return
@@ -123,8 +116,6 @@ class TTSEngine:
             kwargs["instruct"] = instruct.strip()
 
         try:
-            if self.free_vram:
-                self._place_on_gpu()
             wavs, sample_rate = self.model.generate_custom_voice(**kwargs)
             audio = np.asarray(wavs[0])
             del wavs
@@ -140,70 +131,11 @@ class TTSEngine:
                 self._free_cuda()
 
     def release_vram(self) -> None:
-        """Move weights off GPU and empty the CUDA cache. Generate still uses CUDA."""
-        self._move_weights("cpu")
+        """Drop the GPU model so Comfy/LTX can use the 12GB card (reload on next job)."""
+        self.model = None
+        self._ready = False
         self._free_cuda()
-        logger.info("Released TTS VRAM (%s)", self._vram_log())
-
-    def _place_on_gpu(self) -> None:
-        self._move_weights(self._compute_device)
-
-    def _inner_model(self):
-        wrapper = self.model
-        if wrapper is None:
-            return None
-        return getattr(wrapper, "model", wrapper)
-
-    def _move_weights(self, device: str) -> None:
-        import torch
-        import torch.nn as nn
-
-        wrapper = self.model
-        inner = self._inner_model()
-        if inner is None:
-            return
-
-        target = torch.device(device)
-
-        def move_module(mod: nn.Module) -> None:
-            if hasattr(mod, "hf_device_map"):
-                try:
-                    delattr(mod, "hf_device_map")
-                except Exception:
-                    mod.hf_device_map = {}
-            mod.to(target)
-
-        seen: set[int] = set()
-        stack: list[Any] = [inner]
-        for name in ("speech_tokenizer", "speaker_encoder", "talker"):
-            obj = getattr(inner, name, None)
-            if obj is not None:
-                stack.append(obj)
-
-        for obj in stack:
-            if obj is None or id(obj) in seen:
-                continue
-            seen.add(id(obj))
-            if isinstance(obj, nn.Module):
-                try:
-                    move_module(obj)
-                except Exception as exc:
-                    logger.warning("Could not move %s to %s: %s", type(obj).__name__, device, exc)
-            elif hasattr(obj, "to"):
-                try:
-                    obj.to(target)
-                except Exception as exc:
-                    logger.warning("Could not move %s to %s: %s", type(obj).__name__, device, exc)
-
-        for name, value in list(vars(inner).items()):
-            if torch.is_tensor(value) and value.device != target:
-                setattr(inner, name, value.to(target))
-
-        if hasattr(wrapper, "device"):
-            try:
-                wrapper.device = next(inner.parameters()).device
-            except (StopIteration, TypeError, AttributeError):
-                wrapper.device = target
+        logger.info("Unloaded TTS from GPU (%s)", self._vram_log())
 
     def _resolve_device_map(self, torch) -> str:
         requested = (self.device_map or "auto").strip()
