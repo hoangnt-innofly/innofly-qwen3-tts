@@ -179,6 +179,8 @@ class JobService:
                 logger.exception("Job %s failed", job_id)
                 job.status = "failed"
                 job.error = str(exc)
+                if exc.__cause__ and str(exc.__cause__) not in job.error:
+                    job.error = f"{exc} | {exc.__cause__}"
                 self._free_cuda()
             finally:
                 job.finished_at = datetime.now(timezone.utc)

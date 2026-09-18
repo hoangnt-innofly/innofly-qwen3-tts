@@ -68,11 +68,30 @@ class TTSEngine:
                 return
             except Exception as exc:
                 last_error = exc
-                logger.warning("Load failed with attn=%s: %s", attn, exc)
+                logger.warning("Load failed with attn=%s: %s", attn, exc, exc_info=True)
                 self.model = None
                 self._free_cuda()
+                if not self._is_attn_error(exc):
+                    break
 
-        raise RuntimeError(f"Failed to load Qwen3-TTS model {self.model_id}") from last_error
+        detail = f"{type(last_error).__name__}: {last_error}" if last_error else "unknown error"
+        raise RuntimeError(
+            f"Failed to load Qwen3-TTS model {self.model_id}: {detail}"
+        ) from last_error
+
+    @staticmethod
+    def _is_attn_error(exc: BaseException) -> bool:
+        text = str(exc).lower()
+        return any(
+            token in text
+            for token in (
+                "attn",
+                "attention",
+                "flash_attn",
+                "sdpa",
+                "eager",
+            )
+        )
 
     def generate(
         self,
