@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     public_base_url: str = "http://127.0.0.1:8000"
+    secret_api_key: str = ""
 
     tts_mock: bool = False
     tts_model_id: str = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"

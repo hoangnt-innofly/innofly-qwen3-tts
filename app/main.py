@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import jobs, router
+from app.api.routes import api, jobs, router
 from app.core.config import ROOT_DIR, get_settings
 
 settings = get_settings()
@@ -23,9 +23,11 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Qwen3-TTS 1.7B API",
-    description="Demo backend: multilingual text-to-speech with Qwen3-TTS-12Hz-1.7B-CustomVoice.",
+    description="Demo backend: multilingual text-to-speech with Qwen3-TTS-12Hz-1.7B-CustomVoice. "
+    "All `/api/v1/*` routes require header `api-key` matching `SECRET_API_KEY`.",
     version="0.1.0",
     lifespan=lifespan,
+    swagger_ui_parameters={"persistAuthorization": True},
 )
 
 app.add_middleware(
@@ -37,6 +39,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(api)
 
 static_dir = ROOT_DIR / "static"
 if static_dir.is_dir():

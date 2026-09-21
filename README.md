@@ -27,8 +27,10 @@ Each speaker can speak any supported language. Native pairing is usually better 
 | `GET` | `/api/v1/voices` | Speakers + languages for the form |
 | `POST` | `/api/v1/free-memory` | Park weights off GPU (same idea as Comfy `free_memory`) |
 | `GET` | `/media/audio/{file}` | Stream the wav |
-| `GET` | `/health` | CUDA / mock / defaults |
+| `GET` | `/health` | CUDA / mock / defaults (no API key) |
 | `GET` | `/docs` | Swagger |
+
+All `/api/v1/*` routes require header `api-key` equal to `SECRET_API_KEY`. Missing or wrong key → `401`.
 
 Multipart fields matching `generate_custom_voice`:
 
@@ -50,6 +52,7 @@ Example (sync — response includes `audio_url`):
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/api/v1/generate" `
+  -H "api-key: change-me" `
   -F "text=Xin chào, đây là Qwen3-TTS. Hello from multilingual text-to-speech." `
   -F "language=Auto" `
   -F "speaker=Vivian" `

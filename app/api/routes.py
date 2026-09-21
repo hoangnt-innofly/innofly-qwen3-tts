@@ -4,15 +4,17 @@ import asyncio
 from pathlib import Path
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from app.core.auth import require_api_key
 from app.core.config import get_settings
 from app.core.voices import canonicalize_language, canonicalize_speaker, voices_payload
 from app.models.schemas import HealthResponse, JobResponse, VoicesResponse
 from app.services.jobs import JobService
 
 router = APIRouter()
+api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
 settings = get_settings()
 jobs = JobService(settings)
 
@@ -67,18 +69,18 @@ def health() -> HealthResponse:
     )
 
 
-@router.get("/api/v1/voices", response_model=VoicesResponse)
+@api.get("/voices", response_model=VoicesResponse)
 def list_voices() -> VoicesResponse:
     return VoicesResponse.model_validate(voices_payload())
 
 
-@router.post("/api/v1/free-memory")
+@api.post("/free-memory")
 def free_memory() -> dict:
     """Release TTS VRAM after use so other 12GB-card apps (Comfy, LTX) can run."""
     return jobs.free_vram()
 
 
-@router.post("/api/v1/generate", response_model=JobResponse)
+@api.post("/generate", response_model=JobResponse)
 async def generate(
     request: Request,
     text: Annotated[str, Form(min_length=1)],
@@ -113,7 +115,7 @@ async def generate(
     return to_response(request, job)
 
 
-@router.post("/api/v1/jobs", response_model=JobResponse)
+@api.post("/jobs", response_model=JobResponse)
 async def create_job(
     request: Request,
     text: Annotated[str, Form(min_length=1)],
@@ -146,7 +148,7 @@ async def create_job(
     return to_response(request, job)
 
 
-@router.get("/api/v1/jobs/{job_id}", response_model=JobResponse)
+@api.get("/jobs/{job_id}", response_model=JobResponse)
 def get_job(job_id: str, request: Request) -> JobResponse:
     job = jobs.get(job_id)
     if job is None:

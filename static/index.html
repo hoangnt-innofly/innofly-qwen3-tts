@@ -36,6 +36,9 @@
       API: <a class="docs" href="/docs">/docs</a>
     </p>
     <form id="form">
+      <label for="api_key">API key (header api-key)</label>
+      <input type="password" id="api_key" autocomplete="off" placeholder="Trùng SECRET_API_KEY trên server" />
+      <p class="hint">Mọi gọi /api/v1/* đều gửi header <code>api-key</code>. Key lưu tạm trong trình duyệt.</p>
       <label>Nội dung (text)</label>
       <textarea name="text" required>Xin chào, đây là giọng nói đa ngôn ngữ từ Qwen3-TTS. Hello, this is a multilingual text-to-speech demo.</textarea>
       <p class="hint">Hỗ trợ Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian. Tiếng Việt: để Auto.</p>
@@ -116,6 +119,18 @@
     const languageEl = document.getElementById("language");
     const speakerEl = document.getElementById("speaker");
     const speakerMeta = document.getElementById("speaker-meta");
+    const apiKeyEl = document.getElementById("api_key");
+
+    apiKeyEl.value = sessionStorage.getItem("qwen3_tts_api_key") || "";
+    apiKeyEl.addEventListener("change", () => {
+      sessionStorage.setItem("qwen3_tts_api_key", apiKeyEl.value.trim());
+    });
+
+    function apiHeaders() {
+      const key = (apiKeyEl.value || "").trim();
+      sessionStorage.setItem("qwen3_tts_api_key", key);
+      return key ? { "api-key": key } : {};
+    }
 
     function fillSelects(voices) {
       const langs = voices?.languages?.length ? voices.languages : LANGUAGES;
@@ -155,7 +170,7 @@
     fillSelects();
     speakerEl.addEventListener("change", () => updateSpeakerMeta());
 
-    fetch("/api/v1/voices")
+    fetch("/api/v1/voices", { headers: apiHeaders() })
       .then((res) => res.ok ? res.json() : null)
       .then((data) => { if (data) fillSelects(data); })
       .catch(() => {});
@@ -168,7 +183,7 @@
       const data = new FormData(form);
       if (!(data.get("instruct") || "").trim()) data.delete("instruct");
       try {
-        const res = await fetch("/api/v1/generate", { method: "POST", body: data });
+        const res = await fetch("/api/v1/generate", { method: "POST", body: data, headers: apiHeaders() });
         const job = await res.json();
         if (!res.ok) throw new Error(job.detail || JSON.stringify(job));
         if (job.status !== "succeeded" || !job.audio_url) {
