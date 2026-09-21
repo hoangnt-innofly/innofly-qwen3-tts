@@ -28,6 +28,16 @@ def to_response(request: Request, job) -> JobResponse:
     return JobResponse.model_validate(job.to_public(public_base(request)))
 
 
+async def _await_job(job, timeout: float = 600):
+    try:
+        job = await jobs.wait(job.id, timeout=timeout)
+    except (TimeoutError, asyncio.TimeoutError) as exc:
+        raise HTTPException(status_code=504, detail="Generation timed out") from exc
+    if job.status == "failed":
+        raise HTTPException(status_code=500, detail=job.error or "Generation failed")
+    return job
+
+
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     cuda_available, device_name = jobs.cuda_info()
@@ -84,7 +94,7 @@ async def generate(
     seed: Annotated[Optional[int], Form()] = None,
     wait: Annotated[bool, Form()] = True,
 ) -> JobResponse:
-    """Text-to-speech with Qwen3-TTS 1.7B CustomVoice. Waits for audio_url by default."""
+    """Text-to-speech with Qwen3-TTS 1.7B CustomVoice. Waits and returns audio_url."""
     job = await _enqueue(
         text,
         language,
@@ -99,16 +109,11 @@ async def generate(
         seed,
     )
     if wait:
-        try:
-            job = await jobs.wait(job.id, timeout=600)
-        except (TimeoutError, asyncio.TimeoutError) as exc:
-            raise HTTPException(status_code=504, detail="Generation timed out") from exc
-        if job.status == "failed":
-            raise HTTPException(status_code=500, detail=job.error or "Generation failed")
+        job = await _await_job(job)
     return to_response(request, job)
 
 
-@router.post("/api/v1/jobs", response_model=JobResponse, status_code=202)
+@router.post("/api/v1/jobs", response_model=JobResponse)
 async def create_job(
     request: Request,
     text: Annotated[str, Form(min_length=1)],
@@ -123,7 +128,7 @@ async def create_job(
     do_sample: Annotated[Optional[bool], Form()] = None,
     seed: Annotated[Optional[int], Form()] = None,
 ) -> JobResponse:
-    """Queue a TTS job and return immediately. Poll GET /api/v1/jobs/{job_id} for audio_url."""
+    """Same as /generate: wait until WAV is ready, then return audio_url."""
     job = await _enqueue(
         text,
         language,
@@ -137,6 +142,7 @@ async def create_job(
         do_sample,
         seed,
     )
+    job = await _await_job(job)
     return to_response(request, job)
 
 

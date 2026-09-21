@@ -2,7 +2,7 @@
 
 FastAPI backend for multilingual **text-to-speech** with [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) **`Qwen3-TTS-12Hz-1.7B-CustomVoice`**.
 
-Submit text + speaker + language. Response includes `audio_url` (WAV).
+Submit text + speaker + language. Response includes `audio_url` (WAV) in the same request.
 
 ## Model (t2s)
 
@@ -21,9 +21,9 @@ Each speaker can speak any supported language. Native pairing is usually better 
 
 | Method | Path | What it does |
 | --- | --- | --- |
-| `POST` | `/api/v1/generate` | Form TTS, **wait**, return `audio_url` |
-| `POST` | `/api/v1/jobs` | Same form, return immediately (`202`) |
-| `GET` | `/api/v1/jobs/{job_id}` | Poll until `status=succeeded` and `audio_url` is set |
+| `POST` | `/api/v1/generate` | Form TTS, wait, return `audio_url` |
+| `POST` | `/api/v1/jobs` | Same as `/generate` (waits for WAV) |
+| `GET` | `/api/v1/jobs/{job_id}` | Optional lookup of a finished job |
 | `GET` | `/api/v1/voices` | Speakers + languages for the form |
 | `POST` | `/api/v1/free-memory` | Park weights off GPU (same idea as Comfy `free_memory`) |
 | `GET` | `/media/audio/{file}` | Stream the wav |

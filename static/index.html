@@ -164,24 +164,21 @@
       e.preventDefault();
       btn.disabled = true;
       player.style.display = "none";
-      statusEl.textContent = "Đang xếp hàng text-to-speech…";
+      statusEl.textContent = "Đang tạo giọng nói… (chờ audio trong cùng một request)";
       const data = new FormData(form);
       if (!(data.get("instruct") || "").trim()) data.delete("instruct");
       try {
-        const res = await fetch("/api/v1/jobs", { method: "POST", body: data });
+        const res = await fetch("/api/v1/generate", { method: "POST", body: data });
         const job = await res.json();
         if (!res.ok) throw new Error(job.detail || JSON.stringify(job));
+        if (job.status !== "succeeded" || !job.audio_url) {
+          throw new Error(job.error || job.status || "Không có audio_url");
+        }
         statusEl.textContent =
-          "Đã xếp hàng " + job.job_id +
-          "\nt2s · " + job.speaker + " · " + job.language +
-          "\nĐang chờ audio_url…";
-        const done = await poll(job.job_id);
-        if (done.status !== "succeeded") throw new Error(done.error || done.status);
-        statusEl.textContent =
-          "Xong.\n" + done.speaker + " · " + done.language +
-          (done.duration_seconds ? " · " + done.duration_seconds + "s" : "") +
-          "\naudio_url: " + playableUrl(done.audio_url);
-        player.src = playableUrl(done.audio_url);
+          "Xong.\n" + job.speaker + " · " + job.language +
+          (job.duration_seconds ? " · " + job.duration_seconds + "s" : "") +
+          "\naudio_url: " + playableUrl(job.audio_url);
+        player.src = playableUrl(job.audio_url);
         player.style.display = "block";
         player.play().catch(() => {});
       } catch (err) {
@@ -190,20 +187,6 @@
         btn.disabled = false;
       }
     });
-
-    async function poll(id) {
-      while (true) {
-        const res = await fetch(`/api/v1/jobs/${id}`);
-        const job = await res.json();
-        statusEl.textContent =
-          "Job " + id +
-          "\ntrạng thái: " + job.status +
-          "\n" + job.speaker + " · " + job.language +
-          (job.audio_url ? "\naudio_url: " + playableUrl(job.audio_url) : "");
-        if (job.status === "succeeded" || job.status === "failed") return job;
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-    }
   </script>
 </body>
 </html>
