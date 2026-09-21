@@ -183,6 +183,8 @@ class JobService:
                     job.error = f"{exc} | {exc.__cause__}"
                 self._free_cuda()
             finally:
+                if self.settings.tts_free_vram:
+                    self.free_vram()
                 job.finished_at = datetime.now(timezone.utc)
                 job._done.set()
                 self._queue.task_done()
