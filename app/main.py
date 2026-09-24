@@ -1,3 +1,4 @@
+import json
 import os
 
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
@@ -48,11 +49,14 @@ if static_dir.is_dir():
 
 @app.get("/", include_in_schema=False)
 def demo_page():
-    from fastapi.responses import FileResponse
+    from fastapi.responses import HTMLResponse, RedirectResponse
 
     index = static_dir / "index.html"
     if not index.is_file():
-        from fastapi.responses import RedirectResponse
-
         return RedirectResponse(url="/docs")
-    return FileResponse(index)
+    html = index.read_text(encoding="utf-8")
+    html = html.replace(
+        "/*__SECRET_API_KEY__*/ \"\"",
+        json.dumps(settings.secret_api_key or ""),
+    )
+    return HTMLResponse(html)

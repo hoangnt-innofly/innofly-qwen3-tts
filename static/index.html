@@ -37,8 +37,8 @@
     </p>
     <form id="form">
       <label for="api_key">API key (header api-key)</label>
-      <input type="password" id="api_key" autocomplete="off" placeholder="Trùng SECRET_API_KEY trên server" />
-      <p class="hint">Mọi gọi /api/v1/* đều gửi header <code>api-key</code>. Key lưu tạm trong trình duyệt.</p>
+      <input type="password" id="api_key" autocomplete="off" placeholder="SECRET_API_KEY trên server" />
+      <p class="hint">Mặc định điền <code>SECRET_API_KEY</code> từ server. Mọi gọi /api/v1/* gửi header <code>api-key</code>.</p>
       <label>Nội dung (text)</label>
       <textarea name="text" required>Xin chào, đây là giọng nói đa ngôn ngữ từ Qwen3-TTS. Hello, this is a multilingual text-to-speech demo.</textarea>
       <p class="hint">Hỗ trợ Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian. Tiếng Việt: để Auto.</p>
@@ -121,8 +121,9 @@
     const speakerEl = document.getElementById("speaker");
     const speakerMeta = document.getElementById("speaker-meta");
     const apiKeyEl = document.getElementById("api_key");
+    const SERVER_API_KEY = /*__SECRET_API_KEY__*/ "";
 
-    apiKeyEl.value = sessionStorage.getItem("qwen3_tts_api_key") || "";
+    apiKeyEl.value = SERVER_API_KEY || sessionStorage.getItem("qwen3_tts_api_key") || "";
     apiKeyEl.addEventListener("change", () => {
       sessionStorage.setItem("qwen3_tts_api_key", apiKeyEl.value.trim());
     });
