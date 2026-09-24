@@ -7,6 +7,8 @@ from typing import Any
 
 import numpy as np
 
+from app.services.audio import budget_max_new_tokens, trim_low_energy
+
 logger = logging.getLogger("qwen3-tts-api")
 
 
@@ -119,6 +121,7 @@ class TTSEngine:
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
 
+        token_budget = budget_max_new_tokens(text, ceiling=max_new_tokens)
         kwargs: dict[str, Any] = {
             "text": text,
             "language": language,
@@ -129,19 +132,31 @@ class TTSEngine:
             "top_k": top_k,
             "top_p": top_p,
             "repetition_penalty": repetition_penalty,
-            "max_new_tokens": max_new_tokens,
+            "max_new_tokens": token_budget,
         }
         if instruct.strip():
             kwargs["instruct"] = instruct.strip()
+
+        if token_budget < max_new_tokens:
+            logger.info(
+                "Capped max_new_tokens %s → %s for %s chars",
+                max_new_tokens,
+                token_budget,
+                len(text),
+            )
 
         try:
             wavs, sample_rate = self.model.generate_custom_voice(**kwargs)
             audio = np.asarray(wavs[0])
             del wavs
+            raw_duration = float(audio.shape[0] / sample_rate) if sample_rate else 0.0
+            audio = trim_low_energy(audio, int(sample_rate) if sample_rate else 24000)
+            duration = float(audio.shape[0] / sample_rate) if sample_rate else 0.0
+            if raw_duration and duration < raw_duration * 0.9:
+                logger.info("Trimmed trailing breath/silence %.2fs → %.2fs", raw_duration, duration)
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             sf.write(str(output_path), audio, sample_rate)
-            duration = float(audio.shape[0] / sample_rate) if sample_rate else 0.0
             return output_path, int(sample_rate), round(duration, 3)
         finally:
             if self.free_vram:

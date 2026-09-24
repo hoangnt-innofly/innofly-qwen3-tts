@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     tts_default_top_k: int = 50
     tts_default_top_p: float = 1.0
     tts_default_repetition_penalty: float = 1.05
+    # Ceiling only. Short text is auto-capped (~12 tokens/sec) so EOS-miss
+    # does not fill ~3 minutes of breath/silence (common with Ono_Anna).
     tts_default_max_new_tokens: int = 2048
     tts_default_do_sample: bool = True
     tts_default_seed: int = 42

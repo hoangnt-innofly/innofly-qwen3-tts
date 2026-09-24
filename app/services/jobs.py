@@ -11,6 +11,7 @@ from typing import Literal
 
 from app.core.config import Settings
 from app.core.voices import canonicalize_language, canonicalize_speaker
+from app.services.audio import budget_max_new_tokens
 from app.services.mock_engine import generate_placeholder_wav
 
 logger = logging.getLogger("qwen3-tts-api")
@@ -112,8 +113,13 @@ class JobService:
                 if repetition_penalty is None
                 else repetition_penalty
             ),
-            max_new_tokens=(
-                self.settings.tts_default_max_new_tokens if max_new_tokens is None else max_new_tokens
+            max_new_tokens=budget_max_new_tokens(
+                text.strip(),
+                ceiling=(
+                    self.settings.tts_default_max_new_tokens
+                    if max_new_tokens is None
+                    else max_new_tokens
+                ),
             ),
             do_sample=self.settings.tts_default_do_sample if do_sample is None else do_sample,
             seed=self.settings.tts_default_seed if seed is None else seed,
