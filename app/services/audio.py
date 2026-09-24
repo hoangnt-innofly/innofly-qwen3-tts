@@ -8,7 +8,7 @@ import numpy as np
 # 2048 tokens ≈ 170s — that is why 3-character prompts can "breathe" for minutes
 # when the model fails to emit EOS (common with Ono_Anna / short Japanese).
 CODEC_HZ = 12
-MIN_SECONDS = 6.0
+MIN_SECONDS = 3.5
 PAD_SECONDS = 2.0
 SAFETY = 2.0
 
@@ -41,7 +41,7 @@ def trim_low_energy(
     audio: np.ndarray,
     sample_rate: int,
     *,
-    rel_threshold: float = 0.08,
+    rel_threshold: float = 0.18,
     frame_ms: float = 20.0,
     pad_ms: float = 140.0,
     min_keep_seconds: float = 0.25,

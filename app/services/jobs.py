@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.core.config import Settings
-from app.core.voices import canonicalize_language, canonicalize_speaker
+from app.core.voices import canonicalize_language, canonicalize_speaker, resolve_generation
 from app.services.audio import budget_max_new_tokens
 from app.services.mock_engine import generate_placeholder_wav
 
@@ -207,12 +207,22 @@ class JobService:
             return
 
         engine = self._get_engine()
+        engine_speaker, language, instruct = resolve_generation(
+            job.speaker, job.language, job.instruct
+        )
+        if engine_speaker != job.speaker:
+            logger.info(
+                "Speaker %s → %s (language=%s) to avoid Ono_Anna short-text breath",
+                job.speaker,
+                engine_speaker,
+                language,
+            )
         _, sample_rate, duration = engine.generate(
             text=job.text,
-            language=job.language,
-            speaker=job.speaker,
+            language=language,
+            speaker=engine_speaker,
             output_path=job.audio_path,
-            instruct=job.instruct,
+            instruct=instruct,
             temperature=job.temperature,
             top_k=job.top_k,
             top_p=job.top_p,
