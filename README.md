@@ -26,6 +26,8 @@ Each speaker can speak any supported language. Native pairing is usually better 
 | `GET` | `/api/v1/jobs/{job_id}` | Optional lookup of a finished job |
 | `GET` | `/api/v1/voices` | Speakers + languages for the form |
 | `POST` | `/api/v1/free-memory` | Park weights off GPU (same idea as Comfy `free_memory`) |
+| `DELETE` | `/api/v1/media?path=` | Delete a generated WAV (`media/audio/<id>.wav`) |
+| `POST` | `/api/v1/media/delete` | Same delete, form field `path` |
 | `GET` | `/media/audio/{file}` | Stream the wav |
 | `GET` | `/health` | CUDA / mock / defaults (no API key) |
 | `GET` | `/docs` | Swagger |
@@ -73,6 +75,13 @@ curl.exe -X POST "http://127.0.0.1:8000/api/v1/generate" `
   "audio_url": "http://127.0.0.1:8000/media/audio/<job_id>.wav",
   "error": null
 }
+```
+
+Xóa file sau khi dùng xong (tránh đầy ổ):
+
+```powershell
+curl.exe -X DELETE "http://127.0.0.1:8000/api/v1/media?path=media/audio/<job_id>.wav" `
+  -H "api-key: change-me"
 ```
 
 Jobs are serialized on one GPU worker so concurrent requests do not OOM.

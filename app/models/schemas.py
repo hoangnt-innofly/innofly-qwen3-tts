@@ -31,3 +31,9 @@ class VoicesResponse(BaseModel):
     mode: str = "t2s"
     languages: list[str]
     speakers: list[dict[str, str]]
+
+
+class DeleteAudioResponse(BaseModel):
+    deleted: bool
+    path: str
+    filename: str

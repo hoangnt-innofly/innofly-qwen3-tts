@@ -3,14 +3,15 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Annotated, Optional
+from urllib.parse import unquote, urlparse
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 from app.core.auth import require_api_key
 from app.core.config import get_settings
 from app.core.voices import canonicalize_language, canonicalize_speaker, voices_payload
-from app.models.schemas import HealthResponse, JobResponse, VoicesResponse
+from app.models.schemas import DeleteAudioResponse, HealthResponse, JobResponse, VoicesResponse
 from app.services.jobs import JobService
 
 router = APIRouter()
@@ -162,6 +163,48 @@ def get_audio(filename: str):
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Audio not found")
     return FileResponse(path, media_type="audio/wav", filename=path.name)
+
+
+def _audio_file_from_path(raw: str) -> Path:
+    value = unquote((raw or "").strip())
+    if not value:
+        raise HTTPException(status_code=400, detail="path is required")
+
+    parsed = urlparse(value if "://" in value else f"file:///{value.lstrip('/')}")
+    parts = [p for p in parsed.path.replace("\\", "/").split("/") if p]
+    if any(part in {".", ".."} for part in parts):
+        raise HTTPException(status_code=400, detail="invalid path")
+
+    filename = Path(parts[-1]).name
+    if filename.lower() in {"", ".gitkeep"} or not filename.lower().endswith(".wav"):
+        raise HTTPException(status_code=400, detail="only generated .wav files can be deleted")
+
+    audio_root = settings.audio_dir.resolve()
+    path = (audio_root / filename).resolve()
+    if path.parent != audio_root:
+        raise HTTPException(status_code=400, detail="invalid path")
+    return path
+
+
+def _delete_audio(raw_path: str) -> DeleteAudioResponse:
+    path = _audio_file_from_path(raw_path)
+    public_path = f"media/audio/{path.name}"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"Audio not found: {public_path}")
+    path.unlink()
+    return DeleteAudioResponse(deleted=True, path=public_path, filename=path.name)
+
+
+@api.delete("/media", response_model=DeleteAudioResponse)
+def delete_audio(path: Annotated[str, Query(description="media/audio/<id>.wav or audio_url")]):
+    """Delete a generated WAV so storage does not grow."""
+    return _delete_audio(path)
+
+
+@api.post("/media/delete", response_model=DeleteAudioResponse)
+def delete_audio_form(path: Annotated[str, Form()]):
+    """Same as DELETE /media, for form clients."""
+    return _delete_audio(path)
 
 
 async def _enqueue(
