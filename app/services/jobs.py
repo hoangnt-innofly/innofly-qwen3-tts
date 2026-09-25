@@ -212,7 +212,7 @@ class JobService:
         )
         if engine_speaker != job.speaker:
             logger.info(
-                "Speaker %s → %s (language=%s) to avoid Ono_Anna short-text breath",
+                "Speaker %s → %s (language=%s)",
                 job.speaker,
                 engine_speaker,
                 language,

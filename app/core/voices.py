@@ -13,14 +13,21 @@ class Speaker:
     # Japanese slots through another premium speaker that can speak Japanese.
     engine_speaker: str | None = None
     force_language: str | None = None
+    style_instruct: str | None = None
 
 
-# CustomVoice 1.7B has 9 official timbres. Hana is our Japanese replacement
-# (Serena speaking Japanese). Ono_Anna is kept as an alias for old clients.
+# CustomVoice 1.7B has only Ono_Anna as a native Japanese preset (and it
+# often breathes for minutes on short text). Extra Japanese names are
+# other premium timbres speaking Japanese, each with a distinct style.
 JAPANESE_CLEAN_INSTRUCT = (
     "Speak Japanese clearly and stop immediately after the last word. "
     "Do not add extra breath, sighs, or trailing sounds."
 )
+
+
+def _jp(style: str) -> str:
+    return f"{style} {JAPANESE_CLEAN_INSTRUCT}"
+
 
 SPEAKERS: tuple[Speaker, ...] = (
     Speaker("Vivian", "Giọng nữ trẻ, sáng, hơi sắc.", "Chinese"),
@@ -30,12 +37,62 @@ SPEAKERS: tuple[Speaker, ...] = (
     Speaker("Eric", "Giọng nam Thành Đô, sống động, hơi khàn.", "Chinese (Sichuan)"),
     Speaker("Ryan", "Giọng nam năng động, nhịp điệu rõ.", "English"),
     Speaker("Aiden", "Giọng nam Mỹ, trong, trung âm.", "English"),
+    Speaker("Sohee", "Giọng nữ Hàn, ấm, giàu cảm xúc.", "Korean"),
     Speaker(
         "Hana",
-        "Giọng nữ Nhật thay Ono_Anna (Serena nói tiếng Nhật, ít thở).",
+        "Nữ Nhật, ấm, dịu (Serena).",
         "Japanese",
         engine_speaker="Serena",
         force_language="Japanese",
+        style_instruct=_jp("A warm, gentle young Japanese woman."),
+    ),
+    Speaker(
+        "Yuki",
+        "Nữ Nhật, sáng, hơi sắc (Vivian).",
+        "Japanese",
+        engine_speaker="Vivian",
+        force_language="Japanese",
+        style_instruct=_jp("A bright, slightly lively young Japanese woman."),
+    ),
+    Speaker(
+        "Aoi",
+        "Nữ Nhật, ấm, giàu cảm xúc (Sohee).",
+        "Japanese",
+        engine_speaker="Sohee",
+        force_language="Japanese",
+        style_instruct=_jp("A warm, emotionally rich young Japanese woman."),
+    ),
+    Speaker(
+        "Ken",
+        "Nam Nhật, năng động, nhịp rõ (Ryan).",
+        "Japanese",
+        engine_speaker="Ryan",
+        force_language="Japanese",
+        style_instruct=_jp("A dynamic young Japanese man with clear rhythm."),
+    ),
+    Speaker(
+        "Ryo",
+        "Nam Nhật, trong, trung âm (Aiden).",
+        "Japanese",
+        engine_speaker="Aiden",
+        force_language="Japanese",
+        style_instruct=_jp("A clear, sunny young Japanese man."),
+    ),
+    Speaker(
+        "Hiro",
+        "Nam Nhật trưởng thành, trầm, ấm (Uncle_Fu).",
+        "Japanese",
+        engine_speaker="Uncle_Fu",
+        force_language="Japanese",
+        style_instruct=_jp("A mature Japanese man with a low, calm voice."),
+    ),
+    Speaker(
+        "Sora",
+        "Nam Nhật trẻ, tự nhiên (Dylan).",
+        "Japanese",
+        engine_speaker="Dylan",
+        force_language="Japanese",
+        style_instruct=_jp("A youthful Japanese man with a natural, clear voice."),
     ),
     Speaker(
         "Ono_Anna",
@@ -43,8 +100,8 @@ SPEAKERS: tuple[Speaker, ...] = (
         "Japanese",
         engine_speaker="Serena",
         force_language="Japanese",
+        style_instruct=_jp("A warm, gentle young Japanese woman."),
     ),
-    Speaker("Sohee", "Giọng nữ Hàn, ấm, giàu cảm xúc.", "Korean"),
 )
 
 LANGUAGES: tuple[str, ...] = (
@@ -125,7 +182,7 @@ def resolve_generation(
         language = meta.force_language
     cleaned = (instruct or "").strip()
     if meta.engine_speaker and not cleaned:
-        cleaned = JAPANESE_CLEAN_INSTRUCT
+        cleaned = meta.style_instruct or JAPANESE_CLEAN_INSTRUCT
     return engine_speaker, language, cleaned
 
 
