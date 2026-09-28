@@ -8,17 +8,17 @@ class Speaker:
     id: str
     description: str
     native_language: str
-    # CustomVoice has only Ono_Anna as a native Japanese preset, and that
-    # timbre often fails to EOS on short text (minutes of breath). Route
-    # Japanese slots through another premium speaker that can speak Japanese.
+    # CustomVoice timbre actually used; None means `id` itself.
     engine_speaker: str | None = None
     force_language: str | None = None
     style_instruct: str | None = None
+    # Always use the tight sampling caps, even in the native language.
+    stable: bool = False
 
 
 # CustomVoice 1.7B has only Ono_Anna as a native Japanese preset (and it
-# often breathes for minutes on short text). Extra Japanese names are
-# other premium timbres speaking Japanese, each with a distinct style.
+# tends to add breath on short text, hence `stable`). The other Japanese
+# names are other premium timbres speaking Japanese, each with a distinct style.
 JAPANESE_CLEAN_INSTRUCT = (
     "Read the text exactly once in standard Japanese at a steady, natural pace, "
     "like a calm narrator, and end right after the last word."
@@ -96,11 +96,11 @@ SPEAKERS: tuple[Speaker, ...] = (
     ),
     Speaker(
         "Ono_Anna",
-        "Alias → Hana. Preset Nhật gốc hay thở dài với text ngắn.",
+        "Nữ Nhật bản xứ, vui, nhẹ (preset gốc).",
         "Japanese",
-        engine_speaker="Serena",
         force_language="Japanese",
-        style_instruct=_jp("A warm, gentle young Japanese woman."),
+        style_instruct=_jp("A light, cheerful young Japanese woman."),
+        stable=True,
     ),
 )
 
@@ -177,19 +177,19 @@ def resolve_generation(
 ) -> tuple[str, str, str, bool]:
     """Map public speaker id → CustomVoice speaker / language / instruct.
 
-    The last item is True when the timbre reads a language it was not trained
-    as native in; those runs need tighter sampling to avoid extra sounds.
+    The last item is True when the run needs tighter sampling to avoid extra
+    sounds: the timbre reads a non-native language, or the speaker is `stable`.
     """
     meta = get_speaker(speaker)
     engine_speaker = meta.engine_speaker or meta.id
     if language == "Auto" and meta.force_language:
         language = meta.force_language
     cleaned = (instruct or "").strip()
-    if meta.engine_speaker and not cleaned:
-        cleaned = meta.style_instruct or JAPANESE_CLEAN_INSTRUCT
+    if meta.style_instruct and not cleaned:
+        cleaned = meta.style_instruct
     engine_native = get_speaker(engine_speaker).native_language
     cross_lingual = language != "Auto" and not engine_native.startswith(language)
-    return engine_speaker, language, cleaned, cross_lingual
+    return engine_speaker, language, cleaned, cross_lingual or meta.stable
 
 
 def voices_payload() -> dict:

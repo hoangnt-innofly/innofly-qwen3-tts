@@ -202,20 +202,20 @@ class JobService:
 
         engine = self._get_engine()
         s = self.settings
-        engine_speaker, language, instruct, cross_lingual = resolve_generation(
+        engine_speaker, language, instruct, tight = resolve_generation(
             job.speaker, job.language, job.instruct
         )
         temperature, top_p, repetition_penalty = job.temperature, job.top_p, job.repetition_penalty
-        if cross_lingual:
+        if tight:
             temperature = min(temperature, s.tts_stable_temperature)
             top_p = min(top_p, s.tts_stable_top_p)
             repetition_penalty = max(repetition_penalty, s.tts_stable_repetition_penalty)
         logger.info(
-            "Speaker %s → %s (language=%s, cross_lingual=%s, temp=%.2f, top_p=%.2f)",
+            "Speaker %s → %s (language=%s, tight=%s, temp=%.2f, top_p=%.2f)",
             job.speaker,
             engine_speaker,
             language,
-            cross_lingual,
+            tight,
             temperature,
             top_p,
         )
