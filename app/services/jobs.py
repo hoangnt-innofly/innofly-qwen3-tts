@@ -11,6 +11,7 @@ from typing import Literal
 
 from app.core.config import Settings
 from app.core.voices import canonicalize_language, canonicalize_speaker, resolve_generation
+from app.services.audio import ITEM_PAUSE_MS, split_list_items
 from app.services.mock_engine import generate_placeholder_wav
 
 logger = logging.getLogger("qwen3-tts-api")
@@ -223,9 +224,16 @@ class JobService:
             top_p,
             subtalker_temperature,
         )
+        items = split_list_items(job.text)
+        language = plan.language
+        if items:
+            if language == "Auto":
+                language = "Japanese"
+            logger.info("Speaking %s items one by one, pause %sms", len(items), ITEM_PAUSE_MS)
         _, sample_rate, duration = engine.generate(
-            text=job.text,
-            language=plan.language,
+            text=items or job.text,
+            pause_ms=ITEM_PAUSE_MS,
+            language=language,
             speaker=plan.speaker,
             output_path=job.audio_path,
             instruct=plan.instruct,

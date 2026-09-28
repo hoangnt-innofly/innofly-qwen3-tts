@@ -66,6 +66,31 @@ def max_plausible_seconds(text: str, language: str = "Auto") -> float | None:
     return expected * 1.8 + 0.8
 
 
+MAX_LIST_ITEMS = 60
+# Kana drills are always spoken one mora at a time with this pause, so fast
+# speakers cannot run the sounds together.
+ITEM_PAUSE_MS = 400
+# One mora per item: あ, ア, きゃ, ファ, っ, かー. Words like はい or 東京 never
+# qualify, so normal sentences keep the model's own rhythm.
+_KANA_ITEM_RE = re.compile(
+    r"^[\u3041-\u3096\u30a1-\u30fa][ぁぃぅぇぉゃゅょゎァィゥェォャュョヮ]?ー?$"
+)
+_LIST_SEP_RE = re.compile(r"[・･、,，\s]+")
+
+
+def split_list_items(text: str) -> list[str] | None:
+    """Split kana drill text like 'あ・い・う・え・お' into items, or None."""
+    cleaned = (text or "").strip().strip("。．.!！?？")
+    if not _LIST_SEP_RE.search(cleaned):
+        return None
+    parts = [p for p in _LIST_SEP_RE.split(cleaned) if p]
+    if not (2 <= len(parts) <= MAX_LIST_ITEMS):
+        return None
+    if not all(_KANA_ITEM_RE.match(p) for p in parts):
+        return None
+    return parts
+
+
 def prepare_text(text: str) -> str:
     """End the text with punctuation so the model has a clear place to emit EOS."""
     cleaned = (text or "").strip()
