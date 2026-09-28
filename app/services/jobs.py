@@ -11,7 +11,7 @@ from typing import Literal
 
 from app.core.config import Settings
 from app.core.voices import canonicalize_language, canonicalize_speaker, resolve_generation
-from app.services.audio import DRILL_INSTRUCT, audible_items, drill_text, split_list_items
+from app.services.audio import audible_items, drill_text, split_list_items
 from app.services.mock_engine import generate_placeholder_wav
 
 logger = logging.getLogger("qwen3-tts-api")
@@ -203,7 +203,7 @@ class JobService:
 
         engine = self._get_engine()
         s = self.settings
-        plan = resolve_generation(job.speaker, job.language, job.instruct)
+        plan = resolve_generation(job.speaker, job.language, job.instruct, text=job.text)
         items = split_list_items(job.text)
         temperature, top_p, repetition_penalty = job.temperature, job.top_p, job.repetition_penalty
         subtalker_temperature = s.tts_subtalker_temperature
@@ -228,13 +228,11 @@ class JobService:
         text = job.text
         drill_units = None
         language = plan.language
-        instruct = plan.instruct
         if items:
             text = drill_text(items)
             drill_units = audible_items(items)
             if language == "Auto":
                 language = "Japanese"
-            instruct = f"{instruct} {DRILL_INSTRUCT}".strip()
             logger.info("Kana drill read as %r (%s sounds)", text, drill_units)
         _, sample_rate, duration = engine.generate(
             text=text,
@@ -242,7 +240,7 @@ class JobService:
             language=language,
             speaker=plan.speaker,
             output_path=job.audio_path,
-            instruct=instruct,
+            instruct=plan.instruct,
             temperature=temperature,
             top_k=job.top_k,
             top_p=top_p,

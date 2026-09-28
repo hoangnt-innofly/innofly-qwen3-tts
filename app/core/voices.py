@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -10,8 +11,8 @@ class Speaker:
     native_language: str
     # CustomVoice timbre actually used; None means `id` itself.
     engine_speaker: str | None = None
+    # Language used for "Auto" when the text is kanji/kana (no English/Korean).
     force_language: str | None = None
-    style_instruct: str | None = None
     # Always use the tight sampling caps, even in the native language.
     stable: bool = False
     # Per-speaker caps below the global tight ones.
@@ -31,17 +32,8 @@ class GenerationPlan:
 
 # CustomVoice 1.7B has only Ono_Anna as a native Japanese preset (and it
 # tends to add breath on short text, hence `stable`). The other Japanese
-# names are other premium timbres speaking Japanese, each with a distinct style.
-JAPANESE_CLEAN_INSTRUCT = (
-    "Read the text exactly once in standard Japanese at a steady, natural pace, "
-    "like a calm narrator, and end right after the last word."
-)
-
-
-def _jp(style: str) -> str:
-    return f"{style} {JAPANESE_CLEAN_INSTRUCT}"
-
-
+# names are other premium timbres speaking Japanese. No style instruct is
+# sent: the speaker just reads the text.
 SPEAKERS: tuple[Speaker, ...] = (
     Speaker("Vivian", "Giọng nữ trẻ, sáng, hơi sắc.", "Chinese"),
     Speaker("Serena", "Giọng nữ trẻ, ấm, dịu.", "Chinese"),
@@ -57,7 +49,6 @@ SPEAKERS: tuple[Speaker, ...] = (
         "Japanese",
         engine_speaker="Serena",
         force_language="Japanese",
-        style_instruct=_jp("A warm, gentle young Japanese woman."),
     ),
     Speaker(
         "Yuki",
@@ -65,7 +56,6 @@ SPEAKERS: tuple[Speaker, ...] = (
         "Japanese",
         engine_speaker="Vivian",
         force_language="Japanese",
-        style_instruct=_jp("A bright, clear young Japanese woman."),
     ),
     Speaker(
         "Aoi",
@@ -73,7 +63,6 @@ SPEAKERS: tuple[Speaker, ...] = (
         "Japanese",
         engine_speaker="Sohee",
         force_language="Japanese",
-        style_instruct=_jp("A warm, soft young Japanese woman."),
     ),
     Speaker(
         "Ken",
@@ -81,7 +70,6 @@ SPEAKERS: tuple[Speaker, ...] = (
         "Japanese",
         engine_speaker="Ryan",
         force_language="Japanese",
-        style_instruct=_jp("A calm young Japanese man with a clear voice."),
     ),
     Speaker(
         "Ryo",
@@ -89,7 +77,6 @@ SPEAKERS: tuple[Speaker, ...] = (
         "Japanese",
         engine_speaker="Aiden",
         force_language="Japanese",
-        style_instruct=_jp("A clear, sunny young Japanese man."),
     ),
     Speaker(
         "Hiro",
@@ -97,7 +84,6 @@ SPEAKERS: tuple[Speaker, ...] = (
         "Japanese",
         engine_speaker="Uncle_Fu",
         force_language="Japanese",
-        style_instruct=_jp("A mature Japanese man with a low, calm voice."),
     ),
     Speaker(
         "Sora",
@@ -105,18 +91,12 @@ SPEAKERS: tuple[Speaker, ...] = (
         "Japanese",
         engine_speaker="Dylan",
         force_language="Japanese",
-        style_instruct=_jp("A youthful Japanese man with a natural, clear voice."),
     ),
     Speaker(
         "Ono_Anna",
         "Nữ Nhật bản xứ, nhẹ (preset gốc, đã chặn tiếng thở).",
         "Japanese",
         force_language="Japanese",
-        style_instruct=(
-            "A light, calm young Japanese woman reading like a news narrator. "
-            "Speak smoothly with no audible breathing, sighs, or laughter. "
-            "Read the text exactly once and end right after the last word."
-        ),
         stable=True,
         max_temperature=0.45,
         subtalker_temperature=0.45,
@@ -142,6 +122,11 @@ _LANGUAGE_BY_KEY = {lang.lower(): lang for lang in LANGUAGES}
 
 DEFAULT_SPEAKER = "Vivian"
 DEFAULT_LANGUAGE = "Auto"
+
+_KANA_RE = re.compile(r"[\u3041-\u3096\u30a1-\u30fa\u30fc]")
+_HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_HANGUL_RE = re.compile(r"[\uac00-\ud7af]")
+_ASCII_LETTER_RE = re.compile(r"[A-Za-z]")
 
 
 def canonicalize_speaker(value: str | None) -> str:
@@ -189,29 +174,45 @@ def get_speaker(speaker_id: str) -> Speaker:
     raise ValueError(f"Speaker không hợp lệ: {speaker_id}")
 
 
+def _auto_language(text: str, force_language: str) -> str:
+    """Language for "Auto" on a speaker that normally reads `force_language`.
+
+    'book' must stay English: read as Japanese it comes out as a stretched,
+    echoing 'bookkk'.
+    """
+    if _KANA_RE.search(text):
+        return "Japanese"
+    if _HANGUL_RE.search(text):
+        return "Korean"
+    if _HAN_RE.search(text):
+        return force_language
+    if _ASCII_LETTER_RE.search(text) and text.isascii():
+        return "English"
+    return "Auto"
+
+
 def resolve_generation(
     speaker: str,
     language: str,
     instruct: str = "",
+    text: str = "",
 ) -> GenerationPlan:
     """Map public speaker id → CustomVoice speaker / language / instruct / caps.
 
-    `tight` is True when the run needs tighter sampling to avoid extra sounds:
-    the timbre reads a non-native language, or the speaker is `stable`.
+    Only the caller's own instruct is sent. `tight` is True when the run needs
+    tighter sampling to avoid extra sounds: the timbre reads a non-native
+    language, or the speaker is `stable`.
     """
     meta = get_speaker(speaker)
     engine_speaker = meta.engine_speaker or meta.id
     if language == "Auto" and meta.force_language:
-        language = meta.force_language
-    cleaned = (instruct or "").strip()
-    if meta.style_instruct and not cleaned:
-        cleaned = meta.style_instruct
+        language = _auto_language(text, meta.force_language)
     engine_native = get_speaker(engine_speaker).native_language
     cross_lingual = language != "Auto" and not engine_native.startswith(language)
     return GenerationPlan(
         speaker=engine_speaker,
         language=language,
-        instruct=cleaned,
+        instruct=(instruct or "").strip(),
         tight=cross_lingual or meta.stable,
         max_temperature=meta.max_temperature,
         subtalker_temperature=meta.subtalker_temperature,

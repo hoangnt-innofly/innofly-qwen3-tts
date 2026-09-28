@@ -159,6 +159,7 @@ class TTSEngine:
 
         attempts = max(1, int(max_attempts)) if drill or limit is not None else 1
         best: tuple[np.ndarray, int] | None = None
+        silent: tuple[np.ndarray, int] | None = None
         best_rank: tuple[int, bool, bool, float] | None = None
         try:
             for attempt in range(attempts):
@@ -191,13 +192,23 @@ class TTSEngine:
                 sample_rate = int(sample_rate) if sample_rate else 24000
                 raw = np.asarray(wavs[0])
                 del wavs
-                audio = trim_speech(
+                audio, has_speech = trim_speech(
                     raw,
                     sample_rate,
                     expected_seconds=expected if limit is not None else None,
                     strip_breath=not drill,
                 )
                 duration = audio.shape[0] / sample_rate
+
+                if not has_speech:
+                    logger.info(
+                        "Attempt %s/%s seed=%s: only breath or silence, retrying",
+                        attempt + 1,
+                        attempts,
+                        attempt_seed,
+                    )
+                    silent = silent or (audio, sample_rate)
+                    continue
 
                 if drill:
                     # Hitting the budget means no EOS: babble or a cut-off reading.
@@ -239,6 +250,7 @@ class TTSEngine:
                 if best is None or (plausible and audio.shape[0] < best[0].shape[0]):
                     best = (audio, sample_rate)
 
+            best = best or silent
             assert best is not None
             audio, sample_rate = best
             duration = float(audio.shape[0] / sample_rate)

@@ -10,7 +10,8 @@ import numpy as np
 CODEC_HZ = 12
 BUDGET_PAD_SECONDS = 1.5
 BUDGET_SAFETY = 1.6
-MIN_BUDGET_SECONDS = 4.0
+# Room for a breath before a one-word text; trim_speech removes what is left.
+MIN_BUDGET_SECONDS = 6.0
 # Above this, estimates are too rough to cut audio or retry on duration.
 SHORT_TEXT_SECONDS = 10.0
 
@@ -79,10 +80,6 @@ MAX_LIST_ITEMS = 60
 # cut by time, the model reads until it stops by itself.
 DRILL_MAX_ITEM_SECONDS = 2.5
 _SILENT_MORAE = {"っ", "ッ"}
-DRILL_INSTRUCT = (
-    "Pronounce each kana exactly once, clearly and separately, with a short pause "
-    "after each one. Add no other sounds, words, breathing, or laughter."
-)
 # One mora per item: あ, ア, きゃ, ファ, っ, かー. Words like はい or 東京 never
 # qualify, so normal sentences keep the model's own rhythm.
 _KANA_ITEM_RE = re.compile(
@@ -206,43 +203,47 @@ def trim_speech(
     pad_ms: float = 120.0,
     fade_ms: float = 30.0,
     strip_breath: bool = True,
-) -> np.ndarray:
+) -> tuple[np.ndarray, bool]:
     """Keep the spoken part: drop silence, breaths, and babble after the text.
 
-    Breaths at the edges are cut off; breaths between words become silence so
-    the pause length is kept. Pass strip_breath=False for lone morae such as
-    す or し, whose hiss looks like a breath.
+    Returns (audio, has_speech); has_speech is False when only breath or
+    silence came out. Breaths at the edges are cut off; breaths between words
+    become silence so the pause length is kept. Pass strip_breath=False for
+    lone morae such as す or し, whose hiss looks like a breath.
     """
     wave = np.asarray(audio)
     analysed = _frame_rms(wave, sample_rate, frame_ms)
     if analysed is None:
-        return wave
+        return wave, False
     frames, rms = analysed
     frame = frames.shape[1]
     peak = float(np.percentile(rms, 95))
     if peak < 1e-6:
-        return wave
+        return wave, False
 
     voiced = rms >= peak * rel_threshold
     segments = _segments(voiced, max_gap=int(merge_gap_ms / frame_ms), min_len=3)
     if not segments:
-        return wave
-
-    if expected_seconds is not None and expected_seconds > 0:
-        frames_per_sec = 1000.0 / frame_ms
-        cutoff = segments[0][0] + int((expected_seconds * 1.5 + 0.4) * frames_per_sec)
-        kept = [seg for seg in segments if seg[0] <= cutoff]
-        segments = kept or segments[:1]
+        return wave, False
 
     speech_rms = float(np.median(np.concatenate([rms[a:b] for a, b in segments])))
     breaths = [strip_breath and _is_breath(frames, rms, seg, speech_rms) for seg in segments]
-    if not all(breaths):
-        first = breaths.index(False)
-        last = len(breaths) - 1 - breaths[::-1].index(False)
-        muted = [seg for seg, b in zip(segments[first : last + 1], breaths[first : last + 1]) if b]
-        segments = segments[first : last + 1]
-    else:
-        muted = []
+    if all(breaths):
+        return wave, False
+    first = breaths.index(False)
+
+    if expected_seconds is not None and expected_seconds > 0:
+        # Measured from the first real sound, so a breath before it cannot
+        # push the words past the cutoff.
+        frames_per_sec = 1000.0 / frame_ms
+        cutoff = segments[first][0] + int((expected_seconds * 1.5 + 0.4) * frames_per_sec)
+        keep = [i for i, seg in enumerate(segments) if seg[0] <= cutoff]
+        segments = [segments[i] for i in keep]
+        breaths = [breaths[i] for i in keep]
+
+    last = len(breaths) - 1 - breaths[::-1].index(False)
+    muted = [seg for seg, b in zip(segments[first : last + 1], breaths[first : last + 1]) if b]
+    segments = segments[first : last + 1]
 
     pad = int(np.ceil(pad_ms / frame_ms))
     start = max(0, segments[0][0] - pad) * frame
@@ -254,7 +255,7 @@ def trim_speech(
         _mute(out, s * frame - start, e * frame - start, ramp_len)
 
     _fade_edges(out, sample_rate, fade_ms)
-    return out
+    return out, True
 
 
 def _fade_edges(out: np.ndarray, sample_rate: int, fade_ms: float) -> None:
