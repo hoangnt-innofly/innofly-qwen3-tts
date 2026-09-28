@@ -41,6 +41,19 @@ class Settings(BaseSettings):
     tts_default_max_new_tokens: int = 2048
     tts_default_do_sample: bool = True
     tts_default_seed: int = 42
+    # Sampling for the residual codebooks (timbre/texture). Library default 0.9
+    # adds audible breath and noise; lower is cleaner.
+    tts_subtalker_temperature: float = 0.6
+    tts_subtalker_top_k: int = 50
+    tts_subtalker_top_p: float = 0.9
+    # Caps for speakers reading a non-native language (the Japanese voices
+    # Hana/Yuki/Ken/...), which drift into extra sounds at high temperature.
+    tts_stable_temperature: float = 0.6
+    tts_stable_top_p: float = 0.85
+    tts_stable_repetition_penalty: float = 1.1
+    # Short text: regenerate (new seed, cooler sampling) when the clip is far
+    # longer than the text could take to say.
+    tts_max_attempts: int = 3
 
     max_text_chars: int = 4000
     job_ttl_seconds: int = 86400

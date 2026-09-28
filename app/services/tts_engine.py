@@ -7,7 +7,13 @@ from typing import Any
 
 import numpy as np
 
-from app.services.audio import budget_max_new_tokens, trim_low_energy
+from app.services.audio import (
+    budget_max_new_tokens,
+    estimate_speech_seconds,
+    max_plausible_seconds,
+    prepare_text,
+    trim_speech,
+)
 
 logger = logging.getLogger("qwen3-tts-api")
 
@@ -110,6 +116,10 @@ class TTSEngine:
         max_new_tokens: int = 2048,
         do_sample: bool = True,
         seed: int = 42,
+        subtalker_temperature: float = 0.9,
+        subtalker_top_k: int = 50,
+        subtalker_top_p: float = 1.0,
+        max_attempts: int = 1,
     ) -> tuple[Path, int, float]:
         if not self._ready:
             self.load()
@@ -117,47 +127,81 @@ class TTSEngine:
         import torch
         import soundfile as sf
 
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
-
-        token_budget = budget_max_new_tokens(text, ceiling=max_new_tokens)
-        kwargs: dict[str, Any] = {
-            "text": text,
-            "language": language,
-            "speaker": speaker,
-            "non_streaming_mode": True,
-            "do_sample": do_sample,
-            "temperature": temperature,
-            "top_k": top_k,
-            "top_p": top_p,
-            "repetition_penalty": repetition_penalty,
-            "max_new_tokens": token_budget,
-        }
-        if instruct.strip():
-            kwargs["instruct"] = instruct.strip()
-
+        spoken = prepare_text(text)
+        expected = estimate_speech_seconds(spoken, language)
+        limit = max_plausible_seconds(spoken, language)
+        token_budget = budget_max_new_tokens(spoken, ceiling=max_new_tokens, language=language)
         if token_budget < max_new_tokens:
             logger.info(
                 "Capped max_new_tokens %s → %s for %s chars",
                 max_new_tokens,
                 token_budget,
-                len(text),
+                len(spoken),
             )
 
+        attempts = max(1, int(max_attempts)) if limit is not None else 1
+        best: tuple[np.ndarray, int] | None = None
         try:
-            wavs, sample_rate = self.model.generate_custom_voice(**kwargs)
-            audio = np.asarray(wavs[0])
-            del wavs
-            raw_duration = float(audio.shape[0] / sample_rate) if sample_rate else 0.0
-            audio = trim_low_energy(audio, int(sample_rate) if sample_rate else 24000)
-            duration = float(audio.shape[0] / sample_rate) if sample_rate else 0.0
-            if raw_duration and duration < raw_duration * 0.9:
-                logger.info("Trimmed trailing breath/silence %.2fs → %.2fs", raw_duration, duration)
+            for attempt in range(attempts):
+                attempt_seed = seed + attempt
+                torch.manual_seed(attempt_seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(attempt_seed)
+
+                cool = 0.8**attempt
+                kwargs: dict[str, Any] = {
+                    "text": spoken,
+                    "language": language,
+                    "speaker": speaker,
+                    "non_streaming_mode": True,
+                    "do_sample": do_sample,
+                    "temperature": temperature * cool,
+                    "top_k": top_k,
+                    "top_p": top_p,
+                    "repetition_penalty": repetition_penalty,
+                    "subtalker_dosample": do_sample,
+                    "subtalker_temperature": subtalker_temperature * cool,
+                    "subtalker_top_k": subtalker_top_k,
+                    "subtalker_top_p": subtalker_top_p,
+                    "max_new_tokens": token_budget,
+                }
+                if instruct.strip():
+                    kwargs["instruct"] = instruct.strip()
+
+                wavs, sample_rate = self.model.generate_custom_voice(**kwargs)
+                sample_rate = int(sample_rate) if sample_rate else 24000
+                raw = np.asarray(wavs[0])
+                del wavs
+                audio = trim_speech(
+                    raw,
+                    sample_rate,
+                    expected_seconds=expected if limit is not None else None,
+                )
+                duration = audio.shape[0] / sample_rate
+                logger.info(
+                    "Attempt %s/%s seed=%s: raw %.2fs → trimmed %.2fs (limit %s)",
+                    attempt + 1,
+                    attempts,
+                    attempt_seed,
+                    raw.shape[0] / sample_rate,
+                    duration,
+                    f"{limit:.2f}s" if limit is not None else "none",
+                )
+                if limit is None or duration <= limit:
+                    best = (audio, sample_rate)
+                    break
+                # Over the limit: keep the shortest, skipping near-empty clips.
+                plausible = duration >= expected * 0.35
+                if best is None or (plausible and audio.shape[0] < best[0].shape[0]):
+                    best = (audio, sample_rate)
+
+            assert best is not None
+            audio, sample_rate = best
+            duration = float(audio.shape[0] / sample_rate)
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             sf.write(str(output_path), audio, sample_rate)
-            return output_path, int(sample_rate), round(duration, 3)
+            return output_path, sample_rate, round(duration, 3)
         finally:
             if self.free_vram:
                 self.release_vram()

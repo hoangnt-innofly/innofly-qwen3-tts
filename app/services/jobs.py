@@ -11,7 +11,6 @@ from typing import Literal
 
 from app.core.config import Settings
 from app.core.voices import canonicalize_language, canonicalize_speaker, resolve_generation
-from app.services.audio import budget_max_new_tokens
 from app.services.mock_engine import generate_placeholder_wav
 
 logger = logging.getLogger("qwen3-tts-api")
@@ -113,13 +112,8 @@ class JobService:
                 if repetition_penalty is None
                 else repetition_penalty
             ),
-            max_new_tokens=budget_max_new_tokens(
-                text.strip(),
-                ceiling=(
-                    self.settings.tts_default_max_new_tokens
-                    if max_new_tokens is None
-                    else max_new_tokens
-                ),
+            max_new_tokens=(
+                self.settings.tts_default_max_new_tokens if max_new_tokens is None else max_new_tokens
             ),
             do_sample=self.settings.tts_default_do_sample if do_sample is None else do_sample,
             seed=self.settings.tts_default_seed if seed is None else seed,
@@ -207,29 +201,41 @@ class JobService:
             return
 
         engine = self._get_engine()
-        engine_speaker, language, instruct = resolve_generation(
+        s = self.settings
+        engine_speaker, language, instruct, cross_lingual = resolve_generation(
             job.speaker, job.language, job.instruct
         )
-        if engine_speaker != job.speaker:
-            logger.info(
-                "Speaker %s → %s (language=%s)",
-                job.speaker,
-                engine_speaker,
-                language,
-            )
+        temperature, top_p, repetition_penalty = job.temperature, job.top_p, job.repetition_penalty
+        if cross_lingual:
+            temperature = min(temperature, s.tts_stable_temperature)
+            top_p = min(top_p, s.tts_stable_top_p)
+            repetition_penalty = max(repetition_penalty, s.tts_stable_repetition_penalty)
+        logger.info(
+            "Speaker %s → %s (language=%s, cross_lingual=%s, temp=%.2f, top_p=%.2f)",
+            job.speaker,
+            engine_speaker,
+            language,
+            cross_lingual,
+            temperature,
+            top_p,
+        )
         _, sample_rate, duration = engine.generate(
             text=job.text,
             language=language,
             speaker=engine_speaker,
             output_path=job.audio_path,
             instruct=instruct,
-            temperature=job.temperature,
+            temperature=temperature,
             top_k=job.top_k,
-            top_p=job.top_p,
-            repetition_penalty=job.repetition_penalty,
+            top_p=top_p,
+            repetition_penalty=repetition_penalty,
             max_new_tokens=job.max_new_tokens,
             do_sample=job.do_sample,
             seed=job.seed,
+            subtalker_temperature=s.tts_subtalker_temperature,
+            subtalker_top_k=s.tts_subtalker_top_k,
+            subtalker_top_p=s.tts_subtalker_top_p,
+            max_attempts=s.tts_max_attempts,
         )
         job.sample_rate = sample_rate
         job.duration_seconds = duration

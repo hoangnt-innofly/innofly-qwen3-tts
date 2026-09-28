@@ -20,8 +20,8 @@ class Speaker:
 # often breathes for minutes on short text). Extra Japanese names are
 # other premium timbres speaking Japanese, each with a distinct style.
 JAPANESE_CLEAN_INSTRUCT = (
-    "Speak Japanese clearly and stop immediately after the last word. "
-    "Do not add extra breath, sighs, or trailing sounds."
+    "Read the text exactly once in standard Japanese at a steady, natural pace, "
+    "like a calm narrator, and end right after the last word."
 )
 
 
@@ -52,23 +52,23 @@ SPEAKERS: tuple[Speaker, ...] = (
         "Japanese",
         engine_speaker="Vivian",
         force_language="Japanese",
-        style_instruct=_jp("A bright, slightly lively young Japanese woman."),
+        style_instruct=_jp("A bright, clear young Japanese woman."),
     ),
     Speaker(
         "Aoi",
-        "Nữ Nhật, ấm, giàu cảm xúc (Sohee).",
+        "Nữ Nhật, ấm, mềm (Sohee).",
         "Japanese",
         engine_speaker="Sohee",
         force_language="Japanese",
-        style_instruct=_jp("A warm, emotionally rich young Japanese woman."),
+        style_instruct=_jp("A warm, soft young Japanese woman."),
     ),
     Speaker(
         "Ken",
-        "Nam Nhật, năng động, nhịp rõ (Ryan).",
+        "Nam Nhật trẻ, rõ ràng (Ryan).",
         "Japanese",
         engine_speaker="Ryan",
         force_language="Japanese",
-        style_instruct=_jp("A dynamic young Japanese man with clear rhythm."),
+        style_instruct=_jp("A calm young Japanese man with a clear voice."),
     ),
     Speaker(
         "Ryo",
@@ -174,8 +174,12 @@ def resolve_generation(
     speaker: str,
     language: str,
     instruct: str = "",
-) -> tuple[str, str, str]:
-    """Map public speaker id → CustomVoice speaker / language / instruct."""
+) -> tuple[str, str, str, bool]:
+    """Map public speaker id → CustomVoice speaker / language / instruct.
+
+    The last item is True when the timbre reads a language it was not trained
+    as native in; those runs need tighter sampling to avoid extra sounds.
+    """
     meta = get_speaker(speaker)
     engine_speaker = meta.engine_speaker or meta.id
     if language == "Auto" and meta.force_language:
@@ -183,7 +187,9 @@ def resolve_generation(
     cleaned = (instruct or "").strip()
     if meta.engine_speaker and not cleaned:
         cleaned = meta.style_instruct or JAPANESE_CLEAN_INSTRUCT
-    return engine_speaker, language, cleaned
+    engine_native = get_speaker(engine_speaker).native_language
+    cross_lingual = language != "Auto" and not engine_native.startswith(language)
+    return engine_speaker, language, cleaned, cross_lingual
 
 
 def voices_payload() -> dict:

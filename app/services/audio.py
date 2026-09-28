@@ -8,81 +8,163 @@ import numpy as np
 # 2048 tokens ≈ 170s — that is why 3-character prompts can "breathe" for minutes
 # when the model fails to emit EOS (common with Ono_Anna / short Japanese).
 CODEC_HZ = 12
-MIN_SECONDS = 3.5
-PAD_SECONDS = 2.0
-SAFETY = 2.0
+BUDGET_PAD_SECONDS = 1.5
+BUDGET_SAFETY = 1.6
+MIN_BUDGET_SECONDS = 4.0
+# Above this, estimates are too rough to cut audio or retry on duration.
+SHORT_TEXT_SECONDS = 10.0
 
-_CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]")
+_HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_KANA_RE = re.compile(r"[\u3040-\u30ff]")
+_HANGUL_RE = re.compile(r"[\uac00-\ud7af]")
 _LATIN_WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ\u0100-\u024f\u1e00-\u1eff']+")
+_DIGIT_RE = re.compile(r"[0-9０-９]")
 _PUNCT_RE = re.compile(r"[.!?。！？…]+")
+_TERMINAL_PUNCT = set(".!?。！？…、，,;；:：~〜」』）)\"'”’")
 
 
-def estimate_speech_seconds(text: str) -> float:
+def estimate_speech_seconds(text: str, language: str = "Auto") -> float:
+    """Rough spoken length of `text`, without any padding."""
     cleaned = (text or "").strip()
     if not cleaned:
-        return MIN_SECONDS
-    cjk = len(_CJK_RE.findall(cleaned))
-    latin_words = len(_LATIN_WORD_RE.findall(cleaned))
+        return 0.0
+    han = len(_HAN_RE.findall(cleaned))
+    kana = len(_KANA_RE.findall(cleaned))
+    hangul = len(_HANGUL_RE.findall(cleaned))
+    words = _LATIN_WORD_RE.findall(cleaned)
+    digits = len(_DIGIT_RE.findall(cleaned))
     punct = len(_PUNCT_RE.findall(cleaned))
-    leftover = max(0, len(re.sub(r"\s+", "", cleaned)) - cjk - sum(len(w) for w in _LATIN_WORD_RE.findall(cleaned)))
-    seconds = cjk * 0.32 + latin_words * 0.45 + leftover * 0.12 + punct * 0.25 + PAD_SECONDS
-    return max(MIN_SECONDS, seconds)
+    counted = han + kana + hangul + digits + sum(len(w) for w in words)
+    leftover = max(0, len(re.sub(r"\s+", "", cleaned)) - counted)
+    # A kanji is ~2 morae in Japanese, one syllable in Chinese.
+    han_seconds = 0.24 if language == "Chinese" else 0.36
+    return (
+        han * han_seconds
+        + kana * 0.13
+        + hangul * 0.22
+        + len(words) * 0.45
+        + digits * 0.35
+        + leftover * 0.08
+        + punct * 0.25
+    )
 
 
-def budget_max_new_tokens(text: str, ceiling: int = 2048) -> int:
+def budget_max_new_tokens(text: str, ceiling: int = 2048, language: str = "Auto") -> int:
     """Cap decode length so short text cannot fill the full 2048-token window."""
     ceiling = max(64, int(ceiling))
-    estimated = int(estimate_speech_seconds(text) * CODEC_HZ * SAFETY)
-    floor = int(MIN_SECONDS * CODEC_HZ)
+    seconds = estimate_speech_seconds(text, language) + BUDGET_PAD_SECONDS
+    estimated = int(seconds * CODEC_HZ * BUDGET_SAFETY)
+    floor = int(MIN_BUDGET_SECONDS * CODEC_HZ)
     return min(ceiling, max(floor, estimated))
 
 
-def trim_low_energy(
+def max_plausible_seconds(text: str, language: str = "Auto") -> float | None:
+    """Longest believable clip for short text; None when text is too long to judge."""
+    expected = estimate_speech_seconds(text, language)
+    if expected <= 0 or expected > SHORT_TEXT_SECONDS:
+        return None
+    return expected * 1.8 + 0.8
+
+
+def prepare_text(text: str) -> str:
+    """End the text with punctuation so the model has a clear place to emit EOS."""
+    cleaned = (text or "").strip()
+    if not cleaned or cleaned[-1] in _TERMINAL_PUNCT:
+        return cleaned
+    last = cleaned[-1]
+    if _HAN_RE.match(last) or _KANA_RE.match(last) or _HANGUL_RE.match(last) or last == "ー":
+        return cleaned + "。"
+    return cleaned + "."
+
+
+def trim_speech(
     audio: np.ndarray,
     sample_rate: int,
     *,
-    rel_threshold: float = 0.18,
+    expected_seconds: float | None = None,
+    rel_threshold: float = 0.12,
     frame_ms: float = 20.0,
-    pad_ms: float = 140.0,
-    min_keep_seconds: float = 0.25,
+    merge_gap_ms: float = 220.0,
+    pad_ms: float = 120.0,
+    fade_ms: float = 30.0,
 ) -> np.ndarray:
-    """Drop leading/trailing breath and silence; keep a short pad around speech."""
+    """Keep the spoken part: drop silence, trailing breaths, and babble after the text."""
     wave = np.asarray(audio)
     if wave.size == 0 or sample_rate <= 0:
         return wave
-    if wave.ndim > 1:
-        mono = np.mean(wave, axis=-1)
-    else:
-        mono = wave
-
+    mono = np.mean(wave, axis=-1) if wave.ndim > 1 else wave
     samples = np.asarray(mono, dtype=np.float32)
+
     frame = max(1, int(sample_rate * frame_ms / 1000.0))
-    usable = (samples.size // frame) * frame
-    if usable < frame:
-        return audio
+    n_frames = samples.size // frame
+    if n_frames < 3:
+        return wave
 
-    frames = samples[:usable].reshape(-1, frame)
+    frames = samples[: n_frames * frame].reshape(n_frames, frame)
     rms = np.sqrt(np.mean(frames * frames, axis=1))
-    peak = float(np.percentile(rms, 95)) if rms.size else 0.0
-    min_keep = max(1, int(sample_rate * min_keep_seconds))
+    peak = float(np.percentile(rms, 95))
     if peak < 1e-6:
-        return _slice_audio(audio, 0, min(audio.shape[0], min_keep))
+        return wave
 
-    voiced = rms >= (peak * rel_threshold)
-    if not np.any(voiced):
-        return _slice_audio(audio, 0, min(audio.shape[0], min_keep))
+    voiced = rms >= peak * rel_threshold
+    segments = _segments(voiced, max_gap=int(merge_gap_ms / frame_ms), min_len=3)
+    if not segments:
+        return wave
 
-    first = int(np.argmax(voiced))
-    last = int(len(voiced) - 1 - np.argmax(voiced[::-1]))
+    if expected_seconds is not None and expected_seconds > 0:
+        frames_per_sec = 1000.0 / frame_ms
+        cutoff = segments[0][0] + int((expected_seconds * 1.5 + 0.4) * frames_per_sec)
+        kept = [seg for seg in segments if seg[0] <= cutoff]
+        segments = kept or segments[:1]
+
+    while len(segments) > 1 and _is_breath(frames, rms, segments[-1], segments):
+        segments.pop()
+
     pad = int(np.ceil(pad_ms / frame_ms))
-    start = max(0, first - pad) * frame
-    end = min(samples.size, (last + 1 + pad) * frame)
-    if end - start < min_keep:
-        return audio
-    return _slice_audio(audio, start, end)
+    start = max(0, segments[0][0] - pad) * frame
+    end = min(wave.shape[0], (segments[-1][1] + pad) * frame)
+    out = np.array(wave[start:end], copy=True)
+
+    fade = min(out.shape[0], int(sample_rate * fade_ms / 1000.0))
+    if fade > 1:
+        ramp = np.linspace(1.0, 0.0, fade, dtype=np.float32)
+        if out.ndim > 1:
+            ramp = ramp[:, None]
+        out[-fade:] = out[-fade:] * ramp
+    return out
 
 
-def _slice_audio(audio: np.ndarray, start: int, end: int) -> np.ndarray:
-    if audio.ndim > 1:
-        return audio[start:end, ...]
-    return audio[start:end]
+def _segments(mask: np.ndarray, *, max_gap: int, min_len: int) -> list[tuple[int, int]]:
+    """Runs of True as (start, end) frame indices, merging gaps up to `max_gap`."""
+    runs: list[list[int]] = []
+    i, n = 0, len(mask)
+    while i < n:
+        if not mask[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and mask[j]:
+            j += 1
+        if runs and i - runs[-1][1] <= max_gap:
+            runs[-1][1] = j
+        else:
+            runs.append([i, j])
+        i = j
+    return [(s, e) for s, e in runs if e - s >= min_len]
+
+
+def _is_breath(
+    frames: np.ndarray,
+    rms: np.ndarray,
+    seg: tuple[int, int],
+    segments: list[tuple[int, int]],
+) -> bool:
+    """Trailing segment that is quieter than speech and noise-like (flat spectrum)."""
+    s, e = seg
+    speech_rms = float(np.median(np.concatenate([rms[a:b] for a, b in segments[:-1]])))
+    if float(np.mean(rms[s:e])) > speech_rms * 0.6:
+        return False
+    window = np.hanning(frames.shape[1]).astype(np.float32)
+    power = np.abs(np.fft.rfft(frames[s:e] * window, axis=1)) ** 2 + 1e-12
+    flatness = np.exp(np.mean(np.log(power), axis=1)) / np.mean(power, axis=1)
+    return float(np.mean(flatness)) > 0.3
