@@ -14,6 +14,19 @@ class Speaker:
     style_instruct: str | None = None
     # Always use the tight sampling caps, even in the native language.
     stable: bool = False
+    # Per-speaker caps below the global tight ones.
+    max_temperature: float | None = None
+    subtalker_temperature: float | None = None
+
+
+@dataclass(frozen=True)
+class GenerationPlan:
+    speaker: str
+    language: str
+    instruct: str
+    tight: bool
+    max_temperature: float | None
+    subtalker_temperature: float | None
 
 
 # CustomVoice 1.7B has only Ono_Anna as a native Japanese preset (and it
@@ -96,11 +109,17 @@ SPEAKERS: tuple[Speaker, ...] = (
     ),
     Speaker(
         "Ono_Anna",
-        "Nữ Nhật bản xứ, vui, nhẹ (preset gốc).",
+        "Nữ Nhật bản xứ, nhẹ (preset gốc, đã chặn tiếng thở).",
         "Japanese",
         force_language="Japanese",
-        style_instruct=_jp("A light, cheerful young Japanese woman."),
+        style_instruct=(
+            "A light, calm young Japanese woman reading like a news narrator. "
+            "Speak smoothly with no audible breathing, sighs, or laughter. "
+            "Read the text exactly once and end right after the last word."
+        ),
         stable=True,
+        max_temperature=0.45,
+        subtalker_temperature=0.45,
     ),
 )
 
@@ -174,11 +193,11 @@ def resolve_generation(
     speaker: str,
     language: str,
     instruct: str = "",
-) -> tuple[str, str, str, bool]:
-    """Map public speaker id → CustomVoice speaker / language / instruct.
+) -> GenerationPlan:
+    """Map public speaker id → CustomVoice speaker / language / instruct / caps.
 
-    The last item is True when the run needs tighter sampling to avoid extra
-    sounds: the timbre reads a non-native language, or the speaker is `stable`.
+    `tight` is True when the run needs tighter sampling to avoid extra sounds:
+    the timbre reads a non-native language, or the speaker is `stable`.
     """
     meta = get_speaker(speaker)
     engine_speaker = meta.engine_speaker or meta.id
@@ -189,7 +208,14 @@ def resolve_generation(
         cleaned = meta.style_instruct
     engine_native = get_speaker(engine_speaker).native_language
     cross_lingual = language != "Auto" and not engine_native.startswith(language)
-    return engine_speaker, language, cleaned, cross_lingual or meta.stable
+    return GenerationPlan(
+        speaker=engine_speaker,
+        language=language,
+        instruct=cleaned,
+        tight=cross_lingual or meta.stable,
+        max_temperature=meta.max_temperature,
+        subtalker_temperature=meta.subtalker_temperature,
+    )
 
 
 def voices_payload() -> dict:

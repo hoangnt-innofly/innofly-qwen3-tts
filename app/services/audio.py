@@ -88,7 +88,11 @@ def trim_speech(
     pad_ms: float = 120.0,
     fade_ms: float = 30.0,
 ) -> np.ndarray:
-    """Keep the spoken part: drop silence, trailing breaths, and babble after the text."""
+    """Keep the spoken part: drop silence, breaths, and babble after the text.
+
+    Breaths at the edges are cut off; breaths between words become silence so
+    the pause length is kept.
+    """
     wave = np.asarray(audio)
     if wave.size == 0 or sample_rate <= 0:
         return wave
@@ -117,21 +121,47 @@ def trim_speech(
         kept = [seg for seg in segments if seg[0] <= cutoff]
         segments = kept or segments[:1]
 
-    while len(segments) > 1 and _is_breath(frames, rms, segments[-1], segments):
-        segments.pop()
+    speech_rms = float(np.median(np.concatenate([rms[a:b] for a, b in segments])))
+    breaths = [_is_breath(frames, rms, seg, speech_rms) for seg in segments]
+    if not all(breaths):
+        first = breaths.index(False)
+        last = len(breaths) - 1 - breaths[::-1].index(False)
+        muted = [seg for seg, b in zip(segments[first : last + 1], breaths[first : last + 1]) if b]
+        segments = segments[first : last + 1]
+    else:
+        muted = []
 
     pad = int(np.ceil(pad_ms / frame_ms))
     start = max(0, segments[0][0] - pad) * frame
     end = min(wave.shape[0], (segments[-1][1] + pad) * frame)
     out = np.array(wave[start:end], copy=True)
 
-    fade = min(out.shape[0], int(sample_rate * fade_ms / 1000.0))
+    ramp_len = max(2, int(sample_rate * 0.005))
+    for s, e in muted:
+        _mute(out, s * frame - start, e * frame - start, ramp_len)
+
+    fade = min(out.shape[0] // 2, int(sample_rate * fade_ms / 1000.0))
     if fade > 1:
-        ramp = np.linspace(1.0, 0.0, fade, dtype=np.float32)
+        ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
         if out.ndim > 1:
             ramp = ramp[:, None]
-        out[-fade:] = out[-fade:] * ramp
+        out[:fade] = out[:fade] * ramp
+        out[-fade:] = out[-fade:] * ramp[::-1]
     return out
+
+
+def _mute(out: np.ndarray, start: int, end: int, ramp_len: int) -> None:
+    """Silence out[start:end] in place with short ramps so no click is left."""
+    start, end = max(0, start), min(out.shape[0], end)
+    if end - start <= 2 * ramp_len:
+        return
+    down = np.linspace(1.0, 0.0, ramp_len, dtype=np.float32)
+    up = down[::-1]
+    if out.ndim > 1:
+        down, up = down[:, None], up[:, None]
+    out[start : start + ramp_len] *= down
+    out[start + ramp_len : end - ramp_len] = 0
+    out[end - ramp_len : end] *= up
 
 
 def _segments(mask: np.ndarray, *, max_gap: int, min_len: int) -> list[tuple[int, int]]:
@@ -157,11 +187,10 @@ def _is_breath(
     frames: np.ndarray,
     rms: np.ndarray,
     seg: tuple[int, int],
-    segments: list[tuple[int, int]],
+    speech_rms: float,
 ) -> bool:
-    """Trailing segment that is quieter than speech and noise-like (flat spectrum)."""
+    """Segment that is quieter than speech and noise-like (flat spectrum)."""
     s, e = seg
-    speech_rms = float(np.median(np.concatenate([rms[a:b] for a, b in segments[:-1]])))
     if float(np.mean(rms[s:e])) > speech_rms * 0.6:
         return False
     window = np.hanning(frames.shape[1]).astype(np.float32)

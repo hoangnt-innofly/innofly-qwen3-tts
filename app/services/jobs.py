@@ -202,29 +202,33 @@ class JobService:
 
         engine = self._get_engine()
         s = self.settings
-        engine_speaker, language, instruct, tight = resolve_generation(
-            job.speaker, job.language, job.instruct
-        )
+        plan = resolve_generation(job.speaker, job.language, job.instruct)
         temperature, top_p, repetition_penalty = job.temperature, job.top_p, job.repetition_penalty
-        if tight:
+        subtalker_temperature = s.tts_subtalker_temperature
+        if plan.tight:
             temperature = min(temperature, s.tts_stable_temperature)
             top_p = min(top_p, s.tts_stable_top_p)
             repetition_penalty = max(repetition_penalty, s.tts_stable_repetition_penalty)
+        if plan.max_temperature is not None:
+            temperature = min(temperature, plan.max_temperature)
+        if plan.subtalker_temperature is not None:
+            subtalker_temperature = min(subtalker_temperature, plan.subtalker_temperature)
         logger.info(
-            "Speaker %s → %s (language=%s, tight=%s, temp=%.2f, top_p=%.2f)",
+            "Speaker %s → %s (language=%s, tight=%s, temp=%.2f, top_p=%.2f, subtalker_temp=%.2f)",
             job.speaker,
-            engine_speaker,
-            language,
-            tight,
+            plan.speaker,
+            plan.language,
+            plan.tight,
             temperature,
             top_p,
+            subtalker_temperature,
         )
         _, sample_rate, duration = engine.generate(
             text=job.text,
-            language=language,
-            speaker=engine_speaker,
+            language=plan.language,
+            speaker=plan.speaker,
             output_path=job.audio_path,
-            instruct=instruct,
+            instruct=plan.instruct,
             temperature=temperature,
             top_k=job.top_k,
             top_p=top_p,
@@ -232,7 +236,7 @@ class JobService:
             max_new_tokens=job.max_new_tokens,
             do_sample=job.do_sample,
             seed=job.seed,
-            subtalker_temperature=s.tts_subtalker_temperature,
+            subtalker_temperature=subtalker_temperature,
             subtalker_top_k=s.tts_subtalker_top_k,
             subtalker_top_p=s.tts_subtalker_top_p,
             max_attempts=s.tts_max_attempts,
