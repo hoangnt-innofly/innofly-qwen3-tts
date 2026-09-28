@@ -53,13 +53,17 @@ def estimate_speech_seconds(text: str, language: str = "Auto") -> float:
     )
 
 
-def budget_max_new_tokens(text: str, ceiling: int = 2048, language: str = "Auto") -> int:
-    """Cap decode length so short text cannot fill the full 2048-token window."""
+def budget_for_seconds(expected: float, ceiling: int = 2048) -> int:
+    """Decode length for speech expected to last `expected` seconds."""
     ceiling = max(64, int(ceiling))
-    seconds = estimate_speech_seconds(text, language) + BUDGET_PAD_SECONDS
-    estimated = int(seconds * CODEC_HZ * BUDGET_SAFETY)
+    estimated = int((expected + BUDGET_PAD_SECONDS) * CODEC_HZ * BUDGET_SAFETY)
     floor = int(MIN_BUDGET_SECONDS * CODEC_HZ)
     return min(ceiling, max(floor, estimated))
+
+
+def budget_max_new_tokens(text: str, ceiling: int = 2048, language: str = "Auto") -> int:
+    """Cap decode length so short text cannot fill the full 2048-token window."""
+    return budget_for_seconds(estimate_speech_seconds(text, language), ceiling)
 
 
 def max_plausible_seconds(text: str, language: str = "Auto") -> float | None:
@@ -71,6 +75,14 @@ def max_plausible_seconds(text: str, language: str = "Auto") -> float | None:
 
 
 MAX_LIST_ITEMS = 60
+# Decode ceiling per drill mora. It only stops runaway output; drills are never
+# cut by time, the model reads until it stops by itself.
+DRILL_MAX_ITEM_SECONDS = 2.5
+_SILENT_MORAE = {"っ", "ッ"}
+DRILL_INSTRUCT = (
+    "Pronounce each kana exactly once, clearly and separately, with a short pause "
+    "after each one. Add no other sounds, words, breathing, or laughter."
+)
 # One mora per item: あ, ア, きゃ, ファ, っ, かー. Words like はい or 東京 never
 # qualify, so normal sentences keep the model's own rhythm.
 _KANA_ITEM_RE = re.compile(
@@ -92,14 +104,84 @@ def split_list_items(text: str) -> list[str] | None:
     return parts
 
 
-def drill_text(text: str) -> str | None:
-    """'あ・い・う・え・お' → 'あ。い。う。え。お。' so every mora gets its own stop.
+def drill_text(items: list[str]) -> str:
+    """['あ', 'い', 'う'] → 'あ。い。う。' so every mora gets its own stop.
 
     The drill stays one generation: a lone 'あ。' gives the model too little
     text and it fills the gap with breaths and laughs.
     """
-    items = split_list_items(text)
-    return "。".join(items) + "。" if items else None
+    return "。".join(items) + "。"
+
+
+def audible_items(items: list[str]) -> int:
+    """Morae that should show up as a separate sound (a lone っ is silent)."""
+    return sum(1 for item in items if item not in _SILENT_MORAE)
+
+
+def clean_drill(
+    audio: np.ndarray,
+    sample_rate: int,
+    expected_units: int,
+    *,
+    rel_threshold: float = 0.12,
+    frame_ms: float = 20.0,
+    merge_gap_ms: float = 120.0,
+    pad_ms: float = 100.0,
+    fade_ms: float = 30.0,
+) -> tuple[np.ndarray, int]:
+    """Count the separate sounds in a kana drill and drop the extra ones.
+
+    Returns (audio, sounds). Breath-like sounds are removed only when exactly
+    `expected_units` sounds remain, so a hissy す or し is never taken for a
+    breath and lost; otherwise the audio is returned untouched.
+    """
+    wave = np.asarray(audio)
+    analysed = _frame_rms(wave, sample_rate, frame_ms)
+    if analysed is None:
+        return wave, 0
+    frames, rms = analysed
+    peak = float(np.percentile(rms, 95))
+    if peak < 1e-6:
+        return wave, 0
+    voiced = rms >= peak * rel_threshold
+    segments = _segments(voiced, max_gap=int(merge_gap_ms / frame_ms), min_len=3)
+    if len(segments) <= expected_units:
+        return wave, len(segments)
+
+    speech_rms = float(np.median(np.concatenate([rms[a:b] for a, b in segments])))
+    breaths = [_is_breath(frames, rms, seg, speech_rms) for seg in segments]
+    kept = [seg for seg, b in zip(segments, breaths) if not b]
+    if not kept or len(kept) != expected_units:
+        return wave, len(segments)
+
+    frame = frames.shape[1]
+    pad = int(np.ceil(pad_ms / frame_ms))
+    start = max(0, kept[0][0] - pad) * frame
+    end = min(wave.shape[0], (kept[-1][1] + pad) * frame)
+    out = np.array(wave[start:end], copy=True)
+    ramp_len = max(2, int(sample_rate * 0.005))
+    for (s, e), b in zip(segments, breaths):
+        if b and kept[0][0] < s < kept[-1][1]:
+            _mute(out, s * frame - start, e * frame - start, ramp_len)
+    _fade_edges(out, sample_rate, fade_ms)
+    return out, expected_units
+
+
+def _frame_rms(
+    audio: np.ndarray, sample_rate: int, frame_ms: float
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Mono audio as (frames, per-frame RMS), or None when too short."""
+    wave = np.asarray(audio)
+    if wave.size == 0 or sample_rate <= 0:
+        return None
+    mono = np.mean(wave, axis=-1) if wave.ndim > 1 else wave
+    samples = np.asarray(mono, dtype=np.float32)
+    frame = max(1, int(sample_rate * frame_ms / 1000.0))
+    n_frames = samples.size // frame
+    if n_frames < 3:
+        return None
+    frames = samples[: n_frames * frame].reshape(n_frames, frame)
+    return frames, np.sqrt(np.mean(frames * frames, axis=1))
 
 
 def prepare_text(text: str) -> str:
@@ -132,18 +214,11 @@ def trim_speech(
     す or し, whose hiss looks like a breath.
     """
     wave = np.asarray(audio)
-    if wave.size == 0 or sample_rate <= 0:
+    analysed = _frame_rms(wave, sample_rate, frame_ms)
+    if analysed is None:
         return wave
-    mono = np.mean(wave, axis=-1) if wave.ndim > 1 else wave
-    samples = np.asarray(mono, dtype=np.float32)
-
-    frame = max(1, int(sample_rate * frame_ms / 1000.0))
-    n_frames = samples.size // frame
-    if n_frames < 3:
-        return wave
-
-    frames = samples[: n_frames * frame].reshape(n_frames, frame)
-    rms = np.sqrt(np.mean(frames * frames, axis=1))
+    frames, rms = analysed
+    frame = frames.shape[1]
     peak = float(np.percentile(rms, 95))
     if peak < 1e-6:
         return wave
@@ -178,6 +253,11 @@ def trim_speech(
     for s, e in muted:
         _mute(out, s * frame - start, e * frame - start, ramp_len)
 
+    _fade_edges(out, sample_rate, fade_ms)
+    return out
+
+
+def _fade_edges(out: np.ndarray, sample_rate: int, fade_ms: float) -> None:
     fade = min(out.shape[0] // 2, int(sample_rate * fade_ms / 1000.0))
     if fade > 1:
         ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
@@ -185,7 +265,6 @@ def trim_speech(
             ramp = ramp[:, None]
         out[:fade] = out[:fade] * ramp
         out[-fade:] = out[-fade:] * ramp[::-1]
-    return out
 
 
 def _mute(out: np.ndarray, start: int, end: int, ramp_len: int) -> None:

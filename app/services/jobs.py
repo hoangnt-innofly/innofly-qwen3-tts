@@ -11,7 +11,7 @@ from typing import Literal
 
 from app.core.config import Settings
 from app.core.voices import canonicalize_language, canonicalize_speaker, resolve_generation
-from app.services.audio import drill_text
+from app.services.audio import DRILL_INSTRUCT, audible_items, drill_text, split_list_items
 from app.services.mock_engine import generate_placeholder_wav
 
 logger = logging.getLogger("qwen3-tts-api")
@@ -204,9 +204,10 @@ class JobService:
         engine = self._get_engine()
         s = self.settings
         plan = resolve_generation(job.speaker, job.language, job.instruct)
+        items = split_list_items(job.text)
         temperature, top_p, repetition_penalty = job.temperature, job.top_p, job.repetition_penalty
         subtalker_temperature = s.tts_subtalker_temperature
-        if plan.tight:
+        if plan.tight or items:
             temperature = min(temperature, s.tts_stable_temperature)
             top_p = min(top_p, s.tts_stable_top_p)
             repetition_penalty = max(repetition_penalty, s.tts_stable_repetition_penalty)
@@ -224,19 +225,24 @@ class JobService:
             top_p,
             subtalker_temperature,
         )
-        drill = drill_text(job.text)
+        text = job.text
+        drill_units = None
         language = plan.language
-        if drill:
+        instruct = plan.instruct
+        if items:
+            text = drill_text(items)
+            drill_units = audible_items(items)
             if language == "Auto":
                 language = "Japanese"
-            logger.info("Kana drill read as %r", drill)
+            instruct = f"{instruct} {DRILL_INSTRUCT}".strip()
+            logger.info("Kana drill read as %r (%s sounds)", text, drill_units)
         _, sample_rate, duration = engine.generate(
-            text=drill or job.text,
-            strip_breath=drill is None,
+            text=text,
+            drill_units=drill_units,
             language=language,
             speaker=plan.speaker,
             output_path=job.audio_path,
-            instruct=plan.instruct,
+            instruct=instruct,
             temperature=temperature,
             top_k=job.top_k,
             top_p=top_p,

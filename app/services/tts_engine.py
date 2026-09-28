@@ -8,7 +8,11 @@ from typing import Any
 import numpy as np
 
 from app.services.audio import (
+    CODEC_HZ,
+    DRILL_MAX_ITEM_SECONDS,
+    budget_for_seconds,
     budget_max_new_tokens,
+    clean_drill,
     estimate_speech_seconds,
     max_plausible_seconds,
     prepare_text,
@@ -120,8 +124,13 @@ class TTSEngine:
         subtalker_top_k: int = 50,
         subtalker_top_p: float = 1.0,
         max_attempts: int = 1,
-        strip_breath: bool = True,
+        drill_units: int | None = None,
     ) -> tuple[Path, int, float]:
+        """Synthesize `text`.
+
+        `drill_units` marks a kana drill with that many audible morae: it is
+        never cut by time, and attempts that stop early or run away are retried.
+        """
         if not self._ready:
             self.load()
 
@@ -129,9 +138,17 @@ class TTSEngine:
         import soundfile as sf
 
         spoken = prepare_text(text)
-        expected = estimate_speech_seconds(spoken, language)
-        limit = max_plausible_seconds(spoken, language)
-        token_budget = budget_max_new_tokens(spoken, ceiling=max_new_tokens, language=language)
+        drill = drill_units is not None
+        if drill:
+            expected = 0.0
+            limit = None
+            token_budget = budget_for_seconds(
+                drill_units * DRILL_MAX_ITEM_SECONDS, ceiling=max_new_tokens
+            )
+        else:
+            expected = estimate_speech_seconds(spoken, language)
+            limit = max_plausible_seconds(spoken, language)
+            token_budget = budget_max_new_tokens(spoken, ceiling=max_new_tokens, language=language)
         if token_budget < max_new_tokens:
             logger.info(
                 "Capped max_new_tokens %s → %s for %s chars",
@@ -140,8 +157,9 @@ class TTSEngine:
                 len(spoken),
             )
 
-        attempts = max(1, int(max_attempts)) if limit is not None else 1
+        attempts = max(1, int(max_attempts)) if drill or limit is not None else 1
         best: tuple[np.ndarray, int] | None = None
+        best_rank: tuple[int, bool, bool, float] | None = None
         try:
             for attempt in range(attempts):
                 attempt_seed = seed + attempt
@@ -177,9 +195,33 @@ class TTSEngine:
                     raw,
                     sample_rate,
                     expected_seconds=expected if limit is not None else None,
-                    strip_breath=strip_breath,
+                    strip_breath=not drill,
                 )
                 duration = audio.shape[0] / sample_rate
+
+                if drill:
+                    # Hitting the budget means no EOS: babble or a cut-off reading.
+                    finished = raw.shape[0] / sample_rate * CODEC_HZ < token_budget - 1
+                    audio, units = clean_drill(audio, sample_rate, drill_units)
+                    duration = audio.shape[0] / sample_rate
+                    logger.info(
+                        "Drill attempt %s/%s seed=%s: %s/%s sounds, %.2fs, stopped by itself=%s",
+                        attempt + 1,
+                        attempts,
+                        attempt_seed,
+                        units,
+                        drill_units,
+                        duration,
+                        finished,
+                    )
+                    # Exact count first; a missing mora is worse than an extra sound.
+                    rank = (-abs(units - drill_units), units >= drill_units, finished, -duration)
+                    if best_rank is None or rank > best_rank:
+                        best, best_rank = (audio, sample_rate), rank
+                    if finished and units == drill_units:
+                        break
+                    continue
+
                 logger.info(
                     "Attempt %s/%s seed=%s: raw %.2fs → trimmed %.2fs (limit %s)",
                     attempt + 1,
