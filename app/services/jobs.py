@@ -11,7 +11,7 @@ from typing import Literal
 
 from app.core.config import Settings
 from app.core.voices import canonicalize_language, canonicalize_speaker, resolve_generation
-from app.services.audio import ITEM_PAUSE_MS, split_list_items
+from app.services.audio import drill_text
 from app.services.mock_engine import generate_placeholder_wav
 
 logger = logging.getLogger("qwen3-tts-api")
@@ -224,15 +224,15 @@ class JobService:
             top_p,
             subtalker_temperature,
         )
-        items = split_list_items(job.text)
+        drill = drill_text(job.text)
         language = plan.language
-        if items:
+        if drill:
             if language == "Auto":
                 language = "Japanese"
-            logger.info("Speaking %s items one by one, pause %sms", len(items), ITEM_PAUSE_MS)
+            logger.info("Kana drill read as %r", drill)
         _, sample_rate, duration = engine.generate(
-            text=items or job.text,
-            pause_ms=ITEM_PAUSE_MS,
+            text=drill or job.text,
+            strip_breath=drill is None,
             language=language,
             speaker=plan.speaker,
             output_path=job.audio_path,

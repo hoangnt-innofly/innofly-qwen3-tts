@@ -15,11 +15,12 @@ MIN_BUDGET_SECONDS = 4.0
 SHORT_TEXT_SECONDS = 10.0
 
 _HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
-_KANA_RE = re.compile(r"[\u3040-\u30ff]")
+_KANA_RE = re.compile(r"[\u3041-\u3096\u30a1-\u30fa\u30fc]")
 _HANGUL_RE = re.compile(r"[\uac00-\ud7af]")
 _LATIN_WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ\u0100-\u024f\u1e00-\u1eff']+")
 _DIGIT_RE = re.compile(r"[0-9０-９]")
 _PUNCT_RE = re.compile(r"[.!?。！？…]+")
+_COMMA_RE = re.compile(r"[、，,・･;；]+")
 _TERMINAL_PUNCT = set(".!?。！？…、，,;；:：~〜」』）)\"'”’")
 
 
@@ -34,7 +35,9 @@ def estimate_speech_seconds(text: str, language: str = "Auto") -> float:
     words = _LATIN_WORD_RE.findall(cleaned)
     digits = len(_DIGIT_RE.findall(cleaned))
     punct = len(_PUNCT_RE.findall(cleaned))
+    commas = len(_COMMA_RE.findall(cleaned))
     counted = han + kana + hangul + digits + sum(len(w) for w in words)
+    counted += sum(len(m) for m in _PUNCT_RE.findall(cleaned) + _COMMA_RE.findall(cleaned))
     leftover = max(0, len(re.sub(r"\s+", "", cleaned)) - counted)
     # A kanji is ~2 morae in Japanese, one syllable in Chinese.
     han_seconds = 0.24 if language == "Chinese" else 0.36
@@ -45,7 +48,8 @@ def estimate_speech_seconds(text: str, language: str = "Auto") -> float:
         + len(words) * 0.45
         + digits * 0.35
         + leftover * 0.08
-        + punct * 0.25
+        + punct * 0.45
+        + commas * 0.25
     )
 
 
@@ -67,9 +71,6 @@ def max_plausible_seconds(text: str, language: str = "Auto") -> float | None:
 
 
 MAX_LIST_ITEMS = 60
-# Kana drills are always spoken one mora at a time with this pause, so fast
-# speakers cannot run the sounds together.
-ITEM_PAUSE_MS = 400
 # One mora per item: あ, ア, きゃ, ファ, っ, かー. Words like はい or 東京 never
 # qualify, so normal sentences keep the model's own rhythm.
 _KANA_ITEM_RE = re.compile(
@@ -89,6 +90,16 @@ def split_list_items(text: str) -> list[str] | None:
     if not all(_KANA_ITEM_RE.match(p) for p in parts):
         return None
     return parts
+
+
+def drill_text(text: str) -> str | None:
+    """'あ・い・う・え・お' → 'あ。い。う。え。お。' so every mora gets its own stop.
+
+    The drill stays one generation: a lone 'あ。' gives the model too little
+    text and it fills the gap with breaths and laughs.
+    """
+    items = split_list_items(text)
+    return "。".join(items) + "。" if items else None
 
 
 def prepare_text(text: str) -> str:
@@ -112,11 +123,13 @@ def trim_speech(
     merge_gap_ms: float = 220.0,
     pad_ms: float = 120.0,
     fade_ms: float = 30.0,
+    strip_breath: bool = True,
 ) -> np.ndarray:
     """Keep the spoken part: drop silence, breaths, and babble after the text.
 
     Breaths at the edges are cut off; breaths between words become silence so
-    the pause length is kept.
+    the pause length is kept. Pass strip_breath=False for lone morae such as
+    す or し, whose hiss looks like a breath.
     """
     wave = np.asarray(audio)
     if wave.size == 0 or sample_rate <= 0:
@@ -147,7 +160,7 @@ def trim_speech(
         segments = kept or segments[:1]
 
     speech_rms = float(np.median(np.concatenate([rms[a:b] for a, b in segments])))
-    breaths = [_is_breath(frames, rms, seg, speech_rms) for seg in segments]
+    breaths = [strip_breath and _is_breath(frames, rms, seg, speech_rms) for seg in segments]
     if not all(breaths):
         first = breaths.index(False)
         last = len(breaths) - 1 - breaths[::-1].index(False)
