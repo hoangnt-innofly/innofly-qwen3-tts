@@ -95,12 +95,13 @@ SPEAKERS: tuple[Speaker, ...] = (
     ),
     Speaker(
         "Ono_Anna",
-        "Nữ Nhật bản xứ, nhẹ, đặc trưng (preset gốc).",
+        "Nữ Nhật bản xứ, nhẹ (preset gốc, phong cách phát thanh viên rõ ràng).",
         "Japanese",
         force_language="Japanese",
         stable=True,
-        max_temperature=0.55,
-        subtalker_temperature=0.45,
+        max_temperature=0.60,
+        subtalker_temperature=0.40,
+        default_instruct="A professional Japanese female news anchor with a clear, articulate, and serious tone. Moderate speaking pace, steady, formal, and studio quality.",
     ),
 )
 
