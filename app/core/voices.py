@@ -95,13 +95,12 @@ SPEAKERS: tuple[Speaker, ...] = (
     ),
     Speaker(
         "Ono_Anna",
-        "Nữ Nhật bản xứ, nhẹ, đặc trưng (preset gốc, đã lọc tiếng cười & thở đệm).",
+        "Nữ Nhật bản xứ, nhẹ, đặc trưng (preset gốc).",
         "Japanese",
         force_language="Japanese",
         stable=True,
-        max_temperature=0.35,
-        subtalker_temperature=0.01,
-        default_instruct="Speak in a clear, calm, and formal tone. Do not laugh, giggle, sigh, or make breathing sounds.",
+        max_temperature=0.55,
+        subtalker_temperature=0.45,
     ),
 )
 
