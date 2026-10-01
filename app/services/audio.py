@@ -197,11 +197,11 @@ def trim_speech(
     sample_rate: int,
     *,
     expected_seconds: float | None = None,
-    rel_threshold: float = 0.12,
+    rel_threshold: float = 0.14,
     frame_ms: float = 20.0,
-    merge_gap_ms: float = 220.0,
-    pad_ms: float = 120.0,
-    fade_ms: float = 30.0,
+    merge_gap_ms: float = 100.0,
+    pad_ms: float = 40.0,
+    fade_ms: float = 15.0,
     strip_breath: bool = True,
 ) -> tuple[np.ndarray, bool]:
     """Keep the spoken part: drop silence, breaths, and babble after the text.
@@ -307,11 +307,13 @@ def _is_breath(
     seg: tuple[int, int],
     speech_rms: float,
 ) -> bool:
-    """Segment that is quieter than speech and noise-like (flat spectrum)."""
+    """Segment that is quieter than speech and noise-like (flat spectrum of breath/sigh)."""
     s, e = seg
-    if float(np.mean(rms[s:e])) > speech_rms * 0.6:
+    seg_rms = float(np.mean(rms[s:e]))
+    if seg_rms > speech_rms * 0.70:
         return False
     window = np.hanning(frames.shape[1]).astype(np.float32)
     power = np.abs(np.fft.rfft(frames[s:e] * window, axis=1)) ** 2 + 1e-12
     flatness = np.exp(np.mean(np.log(power), axis=1)) / np.mean(power, axis=1)
-    return float(np.mean(flatness)) > 0.25
+    # A true breath/noise segment has high spectral flatness (noise-like, no harmonic formants)
+    return float(np.mean(flatness)) > 0.22
