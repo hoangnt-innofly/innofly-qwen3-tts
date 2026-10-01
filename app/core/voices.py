@@ -99,9 +99,9 @@ SPEAKERS: tuple[Speaker, ...] = (
         "Japanese",
         force_language="Japanese",
         stable=True,
-        max_temperature=0.25,
-        subtalker_temperature=0.20,
-        default_instruct="アナウンサーのように、極めて冷静かつ平坦なトーンで、標準語で真面目に原稿を読み上げてください。息遣いや笑い声は一切入れないでください。",
+        max_temperature=0.35,
+        subtalker_temperature=0.35,
+        default_instruct="Speak in a clear, calm, and formal tone. Do not laugh, giggle, sigh, or make breathing sounds.",
     ),
 )
 
