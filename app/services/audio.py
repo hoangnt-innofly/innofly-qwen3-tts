@@ -314,4 +314,4 @@ def _is_breath(
     window = np.hanning(frames.shape[1]).astype(np.float32)
     power = np.abs(np.fft.rfft(frames[s:e] * window, axis=1)) ** 2 + 1e-12
     flatness = np.exp(np.mean(np.log(power), axis=1)) / np.mean(power, axis=1)
-    return float(np.mean(flatness)) > 0.3
+    return float(np.mean(flatness)) > 0.25

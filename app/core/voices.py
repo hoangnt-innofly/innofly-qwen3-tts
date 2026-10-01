@@ -18,6 +18,8 @@ class Speaker:
     # Per-speaker caps below the global tight ones.
     max_temperature: float | None = None
     subtalker_temperature: float | None = None
+    # Default instruction to suppress unwanted vocalizations (e.g. Ono_Anna breaths/laughs)
+    default_instruct: str | None = None
 
 
 @dataclass(frozen=True)
@@ -31,9 +33,8 @@ class GenerationPlan:
 
 
 # CustomVoice 1.7B has only Ono_Anna as a native Japanese preset (and it
-# tends to add breath on short text, hence `stable`). The other Japanese
-# names are other premium timbres speaking Japanese. No style instruct is
-# sent: the speaker just reads the text.
+# tends to add breath/laughter on short text, hence `stable` + anti-breath instruct).
+# The other Japanese names are other premium timbres speaking Japanese.
 SPEAKERS: tuple[Speaker, ...] = (
     Speaker("Vivian", "Giọng nữ trẻ, sáng, hơi sắc.", "Chinese"),
     Speaker("Serena", "Giọng nữ trẻ, ấm, dịu.", "Chinese"),
@@ -94,12 +95,13 @@ SPEAKERS: tuple[Speaker, ...] = (
     ),
     Speaker(
         "Ono_Anna",
-        "Nữ Nhật bản xứ, nhẹ (preset gốc, đã chặn tiếng thở).",
+        "Nữ Nhật bản xứ, nhẹ (preset gốc, đã chặn tiếng thở & cười).",
         "Japanese",
         force_language="Japanese",
         stable=True,
-        max_temperature=0.45,
-        subtalker_temperature=0.45,
+        max_temperature=0.35,
+        subtalker_temperature=0.35,
+        default_instruct="Speak in a clear, calm, and formal tone. Do not laugh, giggle, sigh, or make breathing sounds.",
     ),
 )
 
@@ -199,9 +201,9 @@ def resolve_generation(
 ) -> GenerationPlan:
     """Map public speaker id → CustomVoice speaker / language / instruct / caps.
 
-    Only the caller's own instruct is sent. `tight` is True when the run needs
-    tighter sampling to avoid extra sounds: the timbre reads a non-native
-    language, or the speaker is `stable`.
+    Only the caller's own instruct is sent, falling back to speaker default_instruct
+    if available. `tight` is True when the run needs tighter sampling to avoid
+    extra sounds: the timbre reads a non-native language, or the speaker is `stable`.
     """
     meta = get_speaker(speaker)
     engine_speaker = meta.engine_speaker or meta.id
@@ -209,10 +211,14 @@ def resolve_generation(
         language = _auto_language(text, meta.force_language)
     engine_native = get_speaker(engine_speaker).native_language
     cross_lingual = language != "Auto" and not engine_native.startswith(language)
+
+    user_instruct = (instruct or "").strip()
+    final_instruct = user_instruct if user_instruct else (meta.default_instruct or "")
+
     return GenerationPlan(
         speaker=engine_speaker,
         language=language,
-        instruct=(instruct or "").strip(),
+        instruct=final_instruct,
         tight=cross_lingual or meta.stable,
         max_temperature=meta.max_temperature,
         subtalker_temperature=meta.subtalker_temperature,
