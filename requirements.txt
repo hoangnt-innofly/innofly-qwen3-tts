@@ -6,3 +6,5 @@ python-dotenv>=1.0.1
 numpy>=1.26.0
 soundfile>=0.12.1
 huggingface_hub>=0.30.0
+omnivoice
+qwen-tts

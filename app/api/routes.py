@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
+import uuid
 from pathlib import Path
 from typing import Annotated, Optional
 from urllib.parse import unquote, urlparse
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from app.core.auth import require_api_key
@@ -45,16 +47,22 @@ async def _await_job(job, timeout: float = 600):
 def health() -> HealthResponse:
     cuda_available, device_name = jobs.cuda_info()
     return HealthResponse(
+        status="ok",
+        engine=settings.tts_engine,
         mock=settings.tts_mock,
         cuda_available=cuda_available,
         device_name=device_name,
         pipeline_ready=jobs.pipeline_ready(),
         defaults={
+            "engine": settings.tts_engine,
             "model": settings.tts_model_id,
             "mode": "t2s",
             "language": settings.tts_default_language,
             "speaker": settings.tts_default_speaker,
             "instruct": settings.tts_default_instruct,
+            "num_step": settings.tts_num_step,
+            "speed": settings.tts_speed,
+            "guidance_scale": settings.tts_guidance_scale,
             "temperature": settings.tts_default_temperature,
             "top_k": settings.tts_default_top_k,
             "top_p": settings.tts_default_top_p,
@@ -71,13 +79,14 @@ def health() -> HealthResponse:
 
 
 @api.get("/voices", response_model=VoicesResponse)
-def list_voices() -> VoicesResponse:
-    return VoicesResponse.model_validate(voices_payload())
+def list_voices(engine: str | None = None) -> VoicesResponse:
+    target_engine = (engine or settings.tts_engine or "omnivoice").strip().lower()
+    return VoicesResponse.model_validate(voices_payload(target_engine))
 
 
 @api.post("/free-memory")
 def free_memory() -> dict:
-    """Release TTS VRAM after use so other 12GB-card apps (Comfy, LTX) can run."""
+    """Release TTS VRAM after use so other GPU apps (Comfy, LTX) can run."""
     return jobs.free_vram()
 
 
@@ -85,9 +94,15 @@ def free_memory() -> dict:
 async def generate(
     request: Request,
     text: Annotated[str, Form(min_length=1)],
+    engine: Annotated[Optional[str], Form()] = None,
     language: Annotated[Optional[str], Form()] = None,
     speaker: Annotated[Optional[str], Form()] = None,
     instruct: Annotated[Optional[str], Form()] = None,
+    speed: Annotated[Optional[float], Form()] = None,
+    num_step: Annotated[Optional[int], Form()] = None,
+    guidance_scale: Annotated[Optional[float], Form()] = None,
+    ref_audio_file: Annotated[Optional[UploadFile], File()] = None,
+    ref_text: Annotated[Optional[str], Form()] = None,
     temperature: Annotated[Optional[float], Form()] = None,
     top_k: Annotated[Optional[int], Form()] = None,
     top_p: Annotated[Optional[float], Form()] = None,
@@ -97,19 +112,33 @@ async def generate(
     seed: Annotated[Optional[int], Form()] = None,
     wait: Annotated[bool, Form()] = True,
 ) -> JobResponse:
-    """Text-to-speech with Qwen3-TTS 1.7B CustomVoice. Waits and returns audio_url."""
+    """Multilingual text-to-speech with OmniVoice (VoiceStudio) or Qwen3-TTS."""
+    ref_audio_path = None
+    if ref_audio_file and ref_audio_file.filename:
+        suffix = Path(ref_audio_file.filename).suffix or ".wav"
+        save_path = settings.uploads_dir / f"ref_{uuid.uuid4().hex}{suffix}"
+        with save_path.open("wb") as buffer:
+            shutil.copyfileobj(ref_audio_file.file, buffer)
+        ref_audio_path = str(save_path)
+
     job = await _enqueue(
-        text,
-        language,
-        speaker,
-        instruct,
-        temperature,
-        top_k,
-        top_p,
-        repetition_penalty,
-        max_new_tokens,
-        do_sample,
-        seed,
+        text=text,
+        engine=engine,
+        language=language,
+        speaker=speaker,
+        instruct=instruct,
+        speed=speed,
+        num_step=num_step,
+        guidance_scale=guidance_scale,
+        ref_audio=ref_audio_path,
+        ref_text=ref_text,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        repetition_penalty=repetition_penalty,
+        max_new_tokens=max_new_tokens,
+        do_sample=do_sample,
+        seed=seed,
     )
     if wait:
         job = await _await_job(job)
@@ -120,9 +149,15 @@ async def generate(
 async def create_job(
     request: Request,
     text: Annotated[str, Form(min_length=1)],
+    engine: Annotated[Optional[str], Form()] = None,
     language: Annotated[Optional[str], Form()] = None,
     speaker: Annotated[Optional[str], Form()] = None,
     instruct: Annotated[Optional[str], Form()] = None,
+    speed: Annotated[Optional[float], Form()] = None,
+    num_step: Annotated[Optional[int], Form()] = None,
+    guidance_scale: Annotated[Optional[float], Form()] = None,
+    ref_audio_file: Annotated[Optional[UploadFile], File()] = None,
+    ref_text: Annotated[Optional[str], Form()] = None,
     temperature: Annotated[Optional[float], Form()] = None,
     top_k: Annotated[Optional[int], Form()] = None,
     top_p: Annotated[Optional[float], Form()] = None,
@@ -132,18 +167,32 @@ async def create_job(
     seed: Annotated[Optional[int], Form()] = None,
 ) -> JobResponse:
     """Same as /generate: wait until WAV is ready, then return audio_url."""
+    ref_audio_path = None
+    if ref_audio_file and ref_audio_file.filename:
+        suffix = Path(ref_audio_file.filename).suffix or ".wav"
+        save_path = settings.uploads_dir / f"ref_{uuid.uuid4().hex}{suffix}"
+        with save_path.open("wb") as buffer:
+            shutil.copyfileobj(ref_audio_file.file, buffer)
+        ref_audio_path = str(save_path)
+
     job = await _enqueue(
-        text,
-        language,
-        speaker,
-        instruct,
-        temperature,
-        top_k,
-        top_p,
-        repetition_penalty,
-        max_new_tokens,
-        do_sample,
-        seed,
+        text=text,
+        engine=engine,
+        language=language,
+        speaker=speaker,
+        instruct=instruct,
+        speed=speed,
+        num_step=num_step,
+        guidance_scale=guidance_scale,
+        ref_audio=ref_audio_path,
+        ref_text=ref_text,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        repetition_penalty=repetition_penalty,
+        max_new_tokens=max_new_tokens,
+        do_sample=do_sample,
+        seed=seed,
     )
     job = await _await_job(job)
     return to_response(request, job)
@@ -209,9 +258,15 @@ def delete_audio_form(path: Annotated[str, Form()]):
 
 async def _enqueue(
     text: str,
+    engine: str | None,
     language: str | None,
     speaker: str | None,
     instruct: str | None,
+    speed: float | None,
+    num_step: int | None,
+    guidance_scale: float | None,
+    ref_audio: str | None,
+    ref_text: str | None,
     temperature: float | None,
     top_k: int | None,
     top_p: float | None,
@@ -229,28 +284,35 @@ async def _enqueue(
             detail=f"text exceeds {settings.max_text_chars} characters",
         )
 
+    chosen_engine = (engine or settings.tts_engine or "omnivoice").strip().lower()
     try:
         language = canonicalize_language(language)
-        speaker = canonicalize_speaker(speaker)
+        speaker = canonicalize_speaker(speaker, engine=chosen_engine)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    if speed is not None and not (0.2 <= speed <= 3.0):
+        raise HTTPException(status_code=400, detail="speed must be between 0.2 and 3.0")
+    if num_step is not None and not (4 <= num_step <= 100):
+        raise HTTPException(status_code=400, detail="num_step must be between 4 and 100")
     if temperature is not None and not (0.0 <= temperature <= 2.0):
         raise HTTPException(status_code=400, detail="temperature must be between 0 and 2")
     if top_p is not None and not (0.0 < top_p <= 1.0):
         raise HTTPException(status_code=400, detail="top_p must be in (0, 1]")
     if top_k is not None and top_k < 0:
         raise HTTPException(status_code=400, detail="top_k must be >= 0")
-    if repetition_penalty is not None and not (0.5 <= repetition_penalty <= 2.0):
-        raise HTTPException(status_code=400, detail="repetition_penalty must be between 0.5 and 2")
-    if max_new_tokens is not None and not (64 <= max_new_tokens <= 8192):
-        raise HTTPException(status_code=400, detail="max_new_tokens must be between 64 and 8192")
 
     return jobs.create_job(
         text=cleaned,
+        engine=chosen_engine,
         language=language,
         speaker=speaker,
         instruct=instruct,
+        speed=speed,
+        num_step=num_step,
+        guidance_scale=guidance_scale,
+        ref_audio=ref_audio,
+        ref_text=ref_text,
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,

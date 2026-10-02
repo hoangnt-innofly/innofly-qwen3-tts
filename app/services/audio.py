@@ -181,9 +181,16 @@ def _frame_rms(
     return frames, np.sqrt(np.mean(frames * frames, axis=1))
 
 
+_NON_VERBAL_TAGS_RE = re.compile(
+    r"\[(laughter|sigh|breath|gasp|cough|snicker|chuckle|yawn|groan|cười|thở|thở dài|ho|hít thở)\]|\((cười|thở|thở dài|laughter|sigh|breath|gasp)\)",
+    re.IGNORECASE,
+)
+
+
 def prepare_text(text: str) -> str:
-    """End the text with punctuation so the model has a clear place to emit EOS."""
-    cleaned = (text or "").strip()
+    """Clean text and ensure it ends with punctuation for clear EOS without breaths/laughter."""
+    cleaned = _NON_VERBAL_TAGS_RE.sub("", text or "")
+    cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
     if not cleaned or cleaned[-1] in _TERMINAL_PUNCT:
         return cleaned
     last = cleaned[-1]
