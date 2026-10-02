@@ -7,14 +7,14 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from app.core.config import Settings
 from app.core.voices import canonicalize_language, canonicalize_speaker, resolve_generation
 from app.services.audio import audible_items, drill_text, split_list_items
 from app.services.mock_engine import generate_placeholder_wav
 
-logger = logging.getLogger("tts-job-service")
+logger = logging.getLogger("qwen3-tts-api")
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
 
@@ -23,7 +23,6 @@ JobStatus = Literal["queued", "running", "succeeded", "failed"]
 class Job:
     id: str
     text: str
-    engine: str
     language: str
     speaker: str
     instruct: str
@@ -35,11 +34,6 @@ class Job:
     max_new_tokens: int
     do_sample: bool
     seed: int
-    num_step: int = 16
-    speed: float = 1.0
-    guidance_scale: float = 2.0
-    ref_audio: str | None = None
-    ref_text: str | None = None
     status: JobStatus = "queued"
     sample_rate: int | None = None
     duration_seconds: float | None = None
@@ -55,7 +49,6 @@ class Job:
         return {
             "job_id": self.id,
             "status": self.status,
-            "engine": self.engine,
             "text": self.text,
             "language": self.language,
             "speaker": self.speaker,
@@ -73,13 +66,13 @@ class JobService:
         self.settings = settings
         self.jobs: dict[str, Job] = {}
         self._queue: asyncio.Queue[str] = asyncio.Queue()
-        self._engines: dict[str, Any] = {}
+        self._engine = None
         self._engine_lock = threading.Lock()
         self._worker_task: asyncio.Task | None = None
 
     def start(self) -> None:
         if self._worker_task is None:
-            self._worker_task = asyncio.create_task(self._worker_loop(), name="tts-worker")
+            self._worker_task = asyncio.create_task(self._worker_loop(), name="qwen3-tts-worker")
 
     async def stop(self) -> None:
         if self._worker_task:
@@ -93,34 +86,23 @@ class JobService:
         self,
         *,
         text: str,
-        engine: str | None = None,
-        language: str | None = None,
-        speaker: str | None = None,
-        instruct: str | None = None,
-        temperature: float | None = None,
-        top_k: int | None = None,
-        top_p: float | None = None,
-        repetition_penalty: float | None = None,
-        max_new_tokens: int | None = None,
-        do_sample: bool | None = None,
-        seed: int | None = None,
-        num_step: int | None = None,
-        speed: float | None = None,
-        guidance_scale: float | None = None,
-        ref_audio: str | None = None,
-        ref_text: str | None = None,
+        language: str | None,
+        speaker: str | None,
+        instruct: str | None,
+        temperature: float | None,
+        top_k: int | None,
+        top_p: float | None,
+        repetition_penalty: float | None,
+        max_new_tokens: int | None,
+        do_sample: bool | None,
+        seed: int | None,
     ) -> Job:
         job_id = uuid.uuid4().hex
-        chosen_engine = (engine or self.settings.tts_engine or "omnivoice").strip().lower()
-        if chosen_engine not in {"omnivoice", "qwen3"}:
-            chosen_engine = "omnivoice"
-
         job = Job(
             id=job_id,
             text=text.strip(),
-            engine=chosen_engine,
             language=canonicalize_language(language or self.settings.tts_default_language),
-            speaker=canonicalize_speaker(speaker or self.settings.tts_default_speaker, engine=chosen_engine),
+            speaker=canonicalize_speaker(speaker or self.settings.tts_default_speaker),
             instruct=(instruct or self.settings.tts_default_instruct).strip(),
             audio_path=self.settings.audio_dir / f"{job_id}.wav",
             temperature=self.settings.tts_default_temperature if temperature is None else temperature,
@@ -136,11 +118,6 @@ class JobService:
             ),
             do_sample=self.settings.tts_default_do_sample if do_sample is None else do_sample,
             seed=self.settings.tts_default_seed if seed is None else seed,
-            num_step=self.settings.tts_num_step if num_step is None else num_step,
-            speed=self.settings.tts_speed if speed is None else speed,
-            guidance_scale=self.settings.tts_guidance_scale if guidance_scale is None else guidance_scale,
-            ref_audio=ref_audio,
-            ref_text=ref_text,
         )
         self.jobs[job_id] = job
         self._queue.put_nowait(job_id)
@@ -157,9 +134,7 @@ class JobService:
     def pipeline_ready(self) -> bool:
         if self.settings.tts_mock:
             return True
-        engine_name = self.settings.tts_engine.lower()
-        engine = self._engines.get(engine_name)
-        return bool(engine and getattr(engine, "ready", False))
+        return bool(self._engine and getattr(self._engine, "ready", False))
 
     @staticmethod
     def _free_cuda() -> None:
@@ -175,15 +150,12 @@ class JobService:
             pass
 
     def free_vram(self) -> dict:
+        """Park TTS weights off GPU so Comfy/LTX can use the 12GB card."""
         with self._engine_lock:
-            for name, eng in list(self._engines.items()):
-                if eng is not None:
-                    try:
-                        eng.release_vram()
-                    except Exception:
-                        pass
-            self._engines.clear()
-            self._free_cuda()
+            if self._engine is not None:
+                self._engine.release_vram()
+            else:
+                self._free_cuda()
         return {"freed": True}
 
     def cuda_info(self) -> tuple[bool, str | None]:
@@ -229,40 +201,9 @@ class JobService:
             job.duration_seconds = duration
             return
 
-        engine_name = job.engine.lower()
-        if engine_name == "omnivoice":
-            self._run_omnivoice_job(job)
-        else:
-            self._run_qwen3_job(job)
-
-    def _run_omnivoice_job(self, job: Job) -> None:
-        engine = self._get_omnivoice_engine()
-        plan = resolve_generation(job.speaker, job.language, job.instruct, text=job.text, engine="omnivoice")
-        logger.info(
-            "OmniVoice Job %s: Speaker=%s (Native=%s), Instruct=%r",
-            job.id,
-            job.speaker,
-            plan.language,
-            plan.instruct,
-        )
-
-        _, sample_rate, duration = engine.generate(
-            text=job.text,
-            output_path=job.audio_path,
-            ref_audio=job.ref_audio,
-            ref_text=job.ref_text,
-            num_step=job.num_step,
-            speed=job.speed,
-            guidance_scale=job.guidance_scale,
-            seed=job.seed,
-        )
-        job.sample_rate = sample_rate
-        job.duration_seconds = duration
-
-    def _run_qwen3_job(self, job: Job) -> None:
-        engine = self._get_qwen3_engine()
+        engine = self._get_engine()
         s = self.settings
-        plan = resolve_generation(job.speaker, job.language, job.instruct, text=job.text, engine="qwen3")
+        plan = resolve_generation(job.speaker, job.language, job.instruct, text=job.text)
         items = split_list_items(job.text)
         temperature, top_p, repetition_penalty = job.temperature, job.top_p, job.repetition_penalty
         subtalker_temperature = s.tts_subtalker_temperature
@@ -274,7 +215,16 @@ class JobService:
             temperature = min(temperature, plan.max_temperature)
         if plan.subtalker_temperature is not None:
             subtalker_temperature = min(subtalker_temperature, plan.subtalker_temperature)
-
+        logger.info(
+            "Speaker %s → %s (language=%s, tight=%s, temp=%.2f, top_p=%.2f, subtalker_temp=%.2f)",
+            job.speaker,
+            plan.speaker,
+            plan.language,
+            plan.tight,
+            temperature,
+            top_p,
+            subtalker_temperature,
+        )
         text = job.text
         drill_units = None
         language = plan.language
@@ -283,7 +233,7 @@ class JobService:
             drill_units = audible_items(items)
             if language == "Auto":
                 language = "Japanese"
-
+            logger.info("Kana drill read as %r (%s sounds)", text, drill_units)
         _, sample_rate, duration = engine.generate(
             text=text,
             drill_units=drill_units,
@@ -306,41 +256,21 @@ class JobService:
         job.sample_rate = sample_rate
         job.duration_seconds = duration
 
-    def _get_omnivoice_engine(self):
+    def _get_engine(self):
         with self._engine_lock:
-            if "omnivoice" not in self._engines or self._engines["omnivoice"] is None:
-                from app.services.omnivoice_engine import OmniVoiceEngine
-
-                model_id = self.settings.tts_model_id
-                if "qwen" in model_id.lower():
-                    model_id = "k2-fsa/OmniVoice"
-
-                engine = OmniVoiceEngine(
-                    model_id=model_id,
-                    device_map=self.settings.tts_device_map,
-                    dtype=self.settings.tts_dtype,
-                    free_vram=self.settings.tts_free_vram,
-                )
-                engine.load()
-                self._engines["omnivoice"] = engine
-            return self._engines["omnivoice"]
-
-    def _get_qwen3_engine(self):
-        with self._engine_lock:
-            if "qwen3" not in self._engines or self._engines["qwen3"] is None:
+            if self._engine is None:
                 from app.services.tts_engine import TTSEngine
 
-                model_id = self.settings.tts_model_id
-                if "omnivoice" in model_id.lower():
-                    model_id = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
-
-                engine = TTSEngine(
-                    model_id,
+                self._engine = TTSEngine(
+                    self.settings.tts_model_id,
                     device_map=self.settings.tts_device_map,
                     dtype=self.settings.tts_dtype,
                     attn_implementation=self.settings.tts_attn_implementation,
                     free_vram=self.settings.tts_free_vram,
                 )
-                engine.load()
-                self._engines["qwen3"] = engine
-            return self._engines["qwen3"]
+                try:
+                    self._engine.load()
+                except Exception:
+                    self._engine = None
+                    raise
+            return self._engine

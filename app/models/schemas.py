@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -7,9 +7,8 @@ class JobResponse(BaseModel):
     job_id: str
     status: str
     text: str
-    engine: str = "omnivoice"
-    language: str = "Auto"
-    speaker: str = "Default"
+    language: str
+    speaker: str
     instruct: str = ""
     mode: str = "t2s"
     sample_rate: int | None = None
@@ -20,7 +19,6 @@ class JobResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = "ok"
-    engine: str
     mock: bool
     cuda_available: bool
     device_name: str | None = None
@@ -29,7 +27,6 @@ class HealthResponse(BaseModel):
 
 
 class VoicesResponse(BaseModel):
-    engine: str
     model: str
     mode: str = "t2s"
     languages: list[str]

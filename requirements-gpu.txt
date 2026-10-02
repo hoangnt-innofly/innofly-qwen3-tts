@@ -1,20 +1,17 @@
 -r requirements.txt
 
-# =====================================================================
-# CUDA 12 PyTorch & GPU Setup (cu121)
-# =====================================================================
-# Cấu hình CUDA 12 tương tự như server LTX / Comfy (cu121).
+# Same CUDA 12 setup as the working LTX server (cu121).
+# torch and torchaudio MUST come from that index. `pip install qwen-tts`
+# can pull PyPI torchaudio (CUDA 13 / libcudart.so.13) — reinstall after.
 #
-# 1. Cài đặt PyTorch với CUDA 12.1:
 #   python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-#
-# 2. Cài đặt toàn bộ dependencies (OmniVoice + Qwen3-TTS + FastAPI):
-#   python -m pip install -r requirements.txt
+#   python -m pip install -U qwen-tts
 #   python -m pip install --force-reinstall --no-deps torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 #
-# 3. (Tùy chọn) FlashAttention 2 để tiết kiệm VRAM:
+# Optional, if the GPU supports it:
 #   pip install -U flash-attn --no-build-isolation
 #
-# 4. Linux packages (cài qua apt):
-#   sudo apt-get install -y sox libsox-fmt-all build-essential
-# =====================================================================
+# Linux (apt, not pip) — Triton compiles driver.c on first CUDA run:
+#   sudo apt-get install -y sox libsox-fmt-all build-essential python3.11-dev
+
+qwen-tts

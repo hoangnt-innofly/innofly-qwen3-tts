@@ -3,515 +3,165 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>OmniVoice & Qwen3-TTS Studio · Text to Speech</title>
+  <title>Qwen3-TTS 1.7B · Text thành giọng nói</title>
   <style>
-    :root {
-      color-scheme: dark;
-      --bg: #0d0f14;
-      --card: #161922;
-      --card-hover: #1c212d;
-      --line: #272d3b;
-      --text: #e8ecf2;
-      --muted: #8e99ac;
-      --accent: #6366f1;
-      --accent-hover: #4f46e5;
-      --accent-glow: rgba(99, 102, 241, 0.25);
-      --success: #10b981;
-      --radius: 12px;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.5;
-      padding: 30px 15px;
-    }
-    main {
-      max-width: 800px;
-      margin: 0 auto;
-    }
-    header {
-      margin-bottom: 24px;
-      text-align: left;
-    }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.75rem;
-      padding: 4px 10px;
-      background: rgba(99, 102, 241, 0.15);
-      border: 1px solid rgba(99, 102, 241, 0.35);
-      color: #a5b4fc;
-      border-radius: 20px;
-      font-weight: 600;
-      margin-bottom: 8px;
-    }
-    h1 {
-      font-size: 1.5rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      margin-bottom: 6px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    p.sub {
-      color: var(--muted);
-      font-size: 0.9rem;
-    }
-    p.sub a {
-      color: #a5b4fc;
-      text-decoration: none;
-    }
-    p.sub a:hover {
-      text-decoration: underline;
-    }
-    form {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 24px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-    }
-    .field-group {
-      margin-bottom: 18px;
-    }
-    label {
-      display: block;
-      font-size: 0.85rem;
-      font-weight: 500;
-      color: var(--text);
-      margin-bottom: 6px;
-    }
-    .hint {
-      font-size: 0.75rem;
-      color: var(--muted);
-      margin-top: 4px;
-    }
-    input[type="text"],
-    input[type="password"],
-    input[type="number"],
-    textarea,
-    select {
-      width: 100%;
-      background: #0e1118;
-      color: var(--text);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 10px 12px;
-      font-size: 0.9rem;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    input:focus, textarea:focus, select:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-glow);
-    }
-    textarea {
-      min-height: 110px;
-      resize: vertical;
-      font-family: inherit;
-    }
-    .quick-samples {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 8px;
-    }
-    .sample-btn {
-      background: #1c212d;
-      border: 1px solid var(--line);
-      color: #94a3b8;
-      font-size: 0.75rem;
-      padding: 4px 8px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .sample-btn:hover {
-      background: #272d3b;
-      color: #e2e8f0;
-      border-color: #475569;
-    }
-    .grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 14px;
-    }
-    .grid-3 {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 12px;
-    }
-    .engine-switcher {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-      background: #0e1118;
-      padding: 4px;
-      border-radius: 8px;
-      border: 1px solid var(--line);
-    }
-    .engine-tab {
-      flex: 1;
-      text-align: center;
-      padding: 8px 12px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      border-radius: 6px;
-      cursor: pointer;
-      color: var(--muted);
-      border: none;
-      background: transparent;
-      transition: all 0.2s;
-    }
-    .engine-tab.active {
-      background: var(--accent);
-      color: white;
-      box-shadow: 0 2px 8px var(--accent-glow);
-    }
-    .speaker-meta {
-      font-size: 0.8rem;
-      color: #a5b4fc;
-      margin-top: 6px;
-    }
-    .upload-box {
-      border: 1px dashed var(--line);
-      border-radius: 8px;
-      padding: 10px 12px;
-      background: #0e1118;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .upload-box input[type="file"] {
-      font-size: 0.8rem;
-      color: var(--muted);
-    }
-    details {
-      margin-top: 14px;
-      background: #11141c;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 10px 14px;
-    }
-    summary {
-      cursor: pointer;
-      color: var(--muted);
-      font-size: 0.85rem;
-      font-weight: 600;
-      user-select: none;
-    }
-    summary:hover {
-      color: var(--text);
-    }
-    .details-body {
-      margin-top: 12px;
-    }
-    button[type="submit"] {
-      margin-top: 20px;
-      width: 100%;
-      border: 0;
-      border-radius: 8px;
-      padding: 14px;
-      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-      color: white;
-      font-size: 0.95rem;
-      font-weight: 600;
-      cursor: pointer;
-      box-shadow: 0 4px 14px var(--accent-glow);
-      transition: transform 0.1s, opacity 0.2s;
-    }
-    button[type="submit"]:hover {
-      opacity: 0.95;
-    }
-    button[type="submit"]:active {
-      transform: scale(0.99);
-    }
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-    .result-card {
-      margin-top: 20px;
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 20px;
-      display: none;
-    }
-    .result-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-    .result-title {
-      font-size: 0.9rem;
-      font-weight: 600;
-      color: var(--success);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .result-meta {
-      font-size: 0.8rem;
-      color: var(--muted);
-      margin-bottom: 14px;
-      line-height: 1.6;
-    }
-    audio {
-      width: 100%;
-      border-radius: 8px;
-      outline: none;
-    }
-    .actions-row {
-      display: flex;
-      gap: 10px;
-      margin-top: 14px;
-    }
-    .btn-secondary {
-      background: #1e2430;
-      border: 1px solid var(--line);
-      color: var(--text);
-      padding: 8px 14px;
-      font-size: 0.85rem;
-      border-radius: 6px;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .btn-secondary:hover {
-      background: #283040;
-    }
-    #status {
-      margin-top: 14px;
-      color: var(--muted);
-      font-size: 0.85rem;
-      white-space: pre-wrap;
-    }
-    @media (max-width: 600px) {
-      .grid-2, .grid-3 { grid-template-columns: 1fr; }
-    }
+    :root { color-scheme: dark; --bg: #0f1115; --card: #181b22; --line: #2a2f3a; --text: #e8eaed; --muted: #9aa3b2; --accent: #7c5cff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, Segoe UI, sans-serif; background: var(--bg); color: var(--text); }
+    main { max-width: 760px; margin: 40px auto; padding: 0 20px; }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    p.sub { color: var(--muted); margin: 0 0 24px; }
+    form, .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin: 14px 0 6px; }
+    input, textarea, select { width: 100%; background: #101318; color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+    textarea { min-height: 110px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .hint { font-size: 0.75rem; color: var(--muted); margin: 4px 0 0; }
+    .speaker-meta { font-size: 0.8rem; color: #c4b5ff; margin-top: 6px; }
+    button { margin-top: 18px; width: 100%; border: 0; border-radius: 10px; padding: 12px; background: var(--accent); color: white; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    #status { margin-top: 16px; color: var(--muted); white-space: pre-wrap; }
+    audio { width: 100%; margin-top: 16px; display: none; }
+    a.docs { color: #b9a8ff; }
+    details { margin-top: 12px; }
+    summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
   </style>
 </head>
 <body>
   <main>
-    <header>
-      <div class="badge">✨ OmniVoice (VoiceStudio 646 Languages) & Qwen3-TTS</div>
-      <h1>Multilingual TTS Studio</h1>
-      <p class="sub">
-        Chuyển văn bản thành giọng nói tự nhiên, diễn cảm, xử lý hoàn hảo câu hỏi & đàm thoại.
-        API Docs: <a href="/docs">/docs</a> · Health: <a href="/health">/health</a>
-      </p>
-    </header>
-
+    <h1>Qwen3-TTS 1.7B · Text thành giọng nói</h1>
+    <p class="sub">
+      CustomVoice t2s, 10 ngôn ngữ. Model tự nhận ngôn ngữ khi chọn Auto.
+      API: <a class="docs" href="/docs">/docs</a>
+    </p>
     <form id="form">
-      <div class="engine-switcher">
-        <button type="button" class="engine-tab active" data-engine="omnivoice">OmniVoice (VoiceStudio 646 Langs)</button>
-        <button type="button" class="engine-tab" data-engine="qwen3">Qwen3-TTS 1.7B</button>
-      </div>
-      <input type="hidden" name="engine" id="engine_input" value="omnivoice" />
+      <label for="api_key">API key (header api-key)</label>
+      <input type="password" id="api_key" autocomplete="off" placeholder="SECRET_API_KEY trên server" />
+      <p class="hint">Mặc định điền <code>SECRET_API_KEY</code> từ server. Mọi gọi /api/v1/* gửi header <code>api-key</code>.</p>
+      <label>Nội dung (text)</label>
+      <textarea name="text" required>Xin chào, đây là giọng nói đa ngôn ngữ từ Qwen3-TTS. Hello, this is a multilingual text-to-speech demo.</textarea>
+      <p class="hint">Hỗ trợ Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian. Tiếng Việt: để Auto.</p>
 
-      <div class="field-group">
-        <label for="api_key">API Key (Header <code>api-key</code>)</label>
-        <input type="password" id="api_key" placeholder="Nhập SECRET_API_KEY nếu server yêu cầu" autocomplete="off" />
-        <p class="hint">Tự động lưu API key vào session trình duyệt.</p>
-      </div>
-
-      <div class="field-group">
-        <label>Nội dung văn bản (Text)</label>
-        <textarea name="text" id="text_input" required>Hôm nay bạn có những thắc mắc gì cần mình giải đáp không? Bạn muốn tìm hiểu về công nghệ AI, lập trình hay điều gì nào?</textarea>
-        <div class="quick-samples">
-          <span style="font-size: 0.75rem; color: var(--muted); align-self: center;">Mẫu câu:</span>
-          <button type="button" class="sample-btn" data-text="Hôm nay bạn có những thắc mắc gì cần mình giải đáp không? Bạn muốn tìm hiểu về điều gì nào?">Câu hỏi tiếng Việt</button>
-          <button type="button" class="sample-btn" data-text="Xin chào các bạn, chào mừng các bạn đã quay trở lại với chuỗi video hướng dẫn lập trình cùng AI!">Lời chào mở đầu</button>
-          <button type="button" class="sample-btn" data-text="Could you explain how diffusion models generate speech in 646 different languages?">English Question</button>
-          <button type="button" class="sample-btn" data-text="こんにちは！今日の調子はいかがですか？何かお手伝いできることはありますか？">Japanese Dialogue</button>
-        </div>
-      </div>
-
-      <div class="grid-2 field-group">
+      <div class="row">
         <div>
           <label>Ngôn ngữ</label>
           <select name="language" id="language"></select>
-          <p class="hint">Hỗ trợ tự động nhận diện (Auto) hoặc chọn ngôn ngữ cụ thể.</p>
+          <p class="hint">Auto = model tự nhận. Biết rõ ngôn ngữ thì chọn cụ thể sẽ ổn định hơn.</p>
         </div>
         <div>
-          <label>Giọng đọc (Preset Speaker)</label>
+          <label>Giọng (speaker)</label>
           <select name="speaker" id="speaker"></select>
           <p class="speaker-meta" id="speaker-meta"></p>
         </div>
       </div>
 
-      <div class="field-group" id="instruct_group">
-        <label>Chỉ dẫn giọng điệu / Cảm xúc (Instruct / Prompt)</label>
-        <textarea name="instruct" id="instruct" style="min-height: 60px;" placeholder="Ví dụ: Giọng ấm áp, truyền cảm, nói chậm rãi, phong cách người dẫn chương trình..."></textarea>
-        <p class="hint">Điều khiển tốc độ, ngữ điệu, cảm xúc hoặc ngữ cảnh cho giọng đọc.</p>
-      </div>
-
-      <div class="field-group" id="clone_group">
-        <label>Voice Cloning (Zero-shot Reference Audio - Tùy chọn)</label>
-        <div class="upload-box">
-          <input type="file" name="ref_audio_file" id="ref_audio_file" accept="audio/*" />
-        </div>
-        <p class="hint">Tải lên file giọng mẫu (3-10s) để OmniVoice nhân bản chính xác âm sắc giọng nói này.</p>
-      </div>
+      <label>Chỉ dẫn giọng (instruct, tùy chọn)</label>
+      <textarea name="instruct" placeholder="Để trống để speaker chỉ đọc đúng text, không thêm cảm xúc."></textarea>
+      <p class="hint">1.7B CustomVoice điều khiển cảm xúc / tốc độ / phong cách bằng câu tự nhiên. Để trống = giọng tự nhiên.</p>
 
       <details>
-        <summary>⚙️ Tham số nâng cao (Speed, Steps, Temperature)</summary>
-        <div class="details-body">
-          <div class="grid-3 field-group">
-            <div>
-              <label>Tốc độ nói (Speed)</label>
-              <input type="number" name="speed" value="1.0" min="0.5" max="2.0" step="0.05" />
-              <p class="hint">Mặc định: 1.0</p>
-            </div>
-            <div>
-              <label>Diffusion Steps</label>
-              <input type="number" name="num_step" value="16" min="8" max="64" step="4" />
-              <p class="hint">16 (nhanh) hoặc 32 (chi tiết)</p>
-            </div>
-            <div>
-              <label>Guidance Scale</label>
-              <input type="number" name="guidance_scale" value="2.0" min="1.0" max="5.0" step="0.1" />
-              <p class="hint">Mặc định: 2.0</p>
-            </div>
+        <summary>Tham số sinh (generate)</summary>
+        <div class="row-3">
+          <div>
+            <label>Temperature</label>
+            <input type="number" name="temperature" value="0.9" min="0" max="2" step="0.05" />
           </div>
-
-          <div class="grid-3 field-group">
-            <div>
-              <label>Temperature (Qwen3)</label>
-              <input type="number" name="temperature" value="0.9" min="0.1" max="1.5" step="0.05" />
-            </div>
-            <div>
-              <label>Top-p (Qwen3)</label>
-              <input type="number" name="top_p" value="1.0" min="0.1" max="1.0" step="0.05" />
-            </div>
-            <div>
-              <label>Seed</label>
-              <input type="number" name="seed" value="42" />
-            </div>
+          <div>
+            <label>Top-p</label>
+            <input type="number" name="top_p" value="1" min="0.01" max="1" step="0.01" />
+          </div>
+          <div>
+            <label>Top-k</label>
+            <input type="number" name="top_k" value="50" min="0" step="1" />
+          </div>
+        </div>
+        <div class="row-3">
+          <div>
+            <label>Max new tokens</label>
+            <input type="number" name="max_new_tokens" value="2048" min="64" max="8192" step="64" />
+            <p class="hint">Trần tối đa. Text ngắn bị giới hạn tự động để tránh thở/silence dài.</p>
+          </div>
+          <div>
+            <label>Repetition penalty</label>
+            <input type="number" name="repetition_penalty" value="1.05" min="0.5" max="2" step="0.01" />
+          </div>
+          <div>
+            <label>Seed</label>
+            <input type="number" name="seed" value="42" />
           </div>
         </div>
       </details>
 
-      <button type="submit" id="btn">🚀 Tạo giọng nói ngay</button>
+      <button type="submit" id="btn">Tạo giọng nói</button>
     </form>
-
-    <div id="status"></div>
-
-    <div class="result-card" id="result-card">
-      <div class="result-header">
-        <div class="result-title">
-          <span>✅</span>
-          <span>Âm thanh đã tạo thành công</span>
-        </div>
-      </div>
-      <div class="result-meta" id="result-meta"></div>
-      <audio id="player" controls></audio>
-      <div class="actions-row">
-        <a id="download-link" class="btn-secondary" download="speech.wav">⬇️ Tải file WAV</a>
-        <button type="button" id="copy-url-btn" class="btn-secondary">📋 Copy Audio URL</button>
-      </div>
-    </div>
+    <p id="status"></p>
+    <audio id="player" controls></audio>
   </main>
-
   <script>
+    const SPEAKERS = [
+      { id: "Vivian", description: "Giọng nữ trẻ, sáng, hơi sắc.", native_language: "Chinese" },
+      { id: "Serena", description: "Giọng nữ trẻ, ấm, dịu.", native_language: "Chinese" },
+      { id: "Uncle_Fu", description: "Giọng nam trưởng thành, trầm, ấm.", native_language: "Chinese" },
+      { id: "Dylan", description: "Giọng nam Bắc Kinh, trẻ, tự nhiên.", native_language: "Chinese (Beijing)" },
+      { id: "Eric", description: "Giọng nam Thành Đô, sống động, hơi khàn.", native_language: "Chinese (Sichuan)" },
+      { id: "Ryan", description: "Giọng nam năng động, nhịp điệu rõ.", native_language: "English" },
+      { id: "Aiden", description: "Giọng nam Mỹ, trong, trung âm.", native_language: "English" },
+      { id: "Sohee", description: "Giọng nữ Hàn, ấm, giàu cảm xúc.", native_language: "Korean" },
+      { id: "Hana", description: "Nữ Nhật, ấm, dịu (Serena).", native_language: "Japanese" },
+      { id: "Yuki", description: "Nữ Nhật, sáng, hơi sắc (Vivian).", native_language: "Japanese" },
+      { id: "Aoi", description: "Nữ Nhật, ấm, giàu cảm xúc (Sohee).", native_language: "Japanese" },
+      { id: "Ken", description: "Nam Nhật, năng động, nhịp rõ (Ryan).", native_language: "Japanese" },
+      { id: "Ryo", description: "Nam Nhật, trong, trung âm (Aiden).", native_language: "Japanese" },
+      { id: "Hiro", description: "Nam Nhật trưởng thành, trầm, ấm (Uncle_Fu).", native_language: "Japanese" },
+      { id: "Sora", description: "Nam Nhật trẻ, tự nhiên (Dylan).", native_language: "Japanese" },
+      { id: "Ono_Anna", description: "Nữ Nhật bản xứ, nhẹ (preset gốc, đã tối ưu chặn tiếng thở & cười).", native_language: "Japanese" }
+    ];
+    const LANGUAGES = ["Auto", "Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"];
+
     const form = document.getElementById("form");
     const statusEl = document.getElementById("status");
     const btn = document.getElementById("btn");
     const player = document.getElementById("player");
-    const resultCard = document.getElementById("result-card");
-    const resultMeta = document.getElementById("result-meta");
-    const downloadLink = document.getElementById("download-link");
-    const copyUrlBtn = document.getElementById("copy-url-btn");
     const languageEl = document.getElementById("language");
     const speakerEl = document.getElementById("speaker");
     const speakerMeta = document.getElementById("speaker-meta");
     const apiKeyEl = document.getElementById("api_key");
-    const engineInput = document.getElementById("engine_input");
-    const textInput = document.getElementById("text_input");
-    const engineTabs = document.querySelectorAll(".engine-tab");
-
     const SERVER_API_KEY = /*__SECRET_API_KEY__*/ "";
 
-    apiKeyEl.value = SERVER_API_KEY || sessionStorage.getItem("tts_api_key") || "";
+    apiKeyEl.value = SERVER_API_KEY || sessionStorage.getItem("qwen3_tts_api_key") || "";
     apiKeyEl.addEventListener("change", () => {
-      sessionStorage.setItem("tts_api_key", apiKeyEl.value.trim());
+      sessionStorage.setItem("qwen3_tts_api_key", apiKeyEl.value.trim());
     });
 
     function apiHeaders() {
       const key = (apiKeyEl.value || "").trim();
-      if (key) sessionStorage.setItem("tts_api_key", key);
+      sessionStorage.setItem("qwen3_tts_api_key", key);
       return key ? { "api-key": key } : {};
     }
 
-    document.querySelectorAll(".sample-btn").forEach((b) => {
-      b.addEventListener("click", () => {
-        textInput.value = b.getAttribute("data-text");
-      });
-    });
-
-    let currentVoices = { omnivoice: null, qwen3: null };
-
-    async function loadVoices(engine) {
-      try {
-        const res = await fetch(`/api/v1/voices?engine=${engine}`, { headers: apiHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          currentVoices[engine] = data;
-          renderVoices(data);
-        }
-      } catch (err) {
-        console.warn("Failed to fetch voices:", err);
-      }
-    }
-
-    function renderVoices(data) {
-      if (!data) return;
-      const langs = data.languages || ["Auto"];
-      const speakers = data.speakers || [];
-      languageEl.innerHTML = langs.map((l) => `<option value="${l}">${l}</option>`).join("");
-      
+    function fillSelects(voices) {
+      const langs = voices?.languages?.length ? voices.languages : LANGUAGES;
+      const speakers = voices?.speakers?.length ? voices.speakers : SPEAKERS;
+      languageEl.innerHTML = langs.map((lang) => `<option value="${lang}">${lang}</option>`).join("");
       speakerEl.innerHTML = speakers.map((s) => {
-        const langTag = s.native_language ? ` [${s.native_language}]` : "";
-        return `<option value="${s.id}">${s.id}${langTag}</option>`;
+        const id = s.id || s;
+        return `<option value="${id}">${id}</option>`;
       }).join("");
-
       languageEl.value = "Auto";
-      if (speakers.length) {
-        speakerEl.value = speakers[0].id;
-      }
+      speakerEl.value = "Vivian";
       updateSpeakerMeta(speakers);
     }
 
     function updateSpeakerMeta(speakers) {
-      const engine = engineInput.value;
-      const list = speakers || (currentVoices[engine] ? currentVoices[engine].speakers : []);
-      const current = list.find((s) => s.id === speakerEl.value);
-      if (!current) {
+      const list = speakers || SPEAKERS;
+      const current = list.find((s) => (s.id || s) === speakerEl.value);
+      if (!current || typeof current === "string") {
         speakerMeta.textContent = "";
         return;
       }
-      speakerMeta.textContent = current.description + (current.native_language ? ` · (Bản xứ: ${current.native_language})` : "");
+      speakerMeta.textContent = current.description + " · native: " + current.native_language;
     }
-
-    speakerEl.addEventListener("change", () => updateSpeakerMeta());
-
-    engineTabs.forEach((tab) => {
-      tab.addEventListener("click", () => {
-        engineTabs.forEach((t) => t.classList.remove("active"));
-        tab.classList.add("active");
-        const engine = tab.getAttribute("data-engine");
-        engineInput.value = engine;
-        loadVoices(engine);
-      });
-    });
 
     function playableUrl(url) {
       try {
@@ -525,51 +175,37 @@
       }
     }
 
-    loadVoices("omnivoice");
+    fillSelects();
+    speakerEl.addEventListener("change", () => updateSpeakerMeta());
+
+    fetch("/api/v1/voices", { headers: apiHeaders() })
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => { if (data) fillSelects(data); })
+      .catch(() => {});
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       btn.disabled = true;
-      resultCard.style.display = "none";
-      statusEl.textContent = "⏳ Đang tổng hợp giọng nói (OmniVoice / VoiceStudio)...";
-      
+      player.style.display = "none";
+      statusEl.textContent = "Đang tạo giọng nói… (chờ audio trong cùng một request)";
       const data = new FormData(form);
       if (!(data.get("instruct") || "").trim()) data.delete("instruct");
-      const file = document.getElementById("ref_audio_file").files[0];
-      if (!file) data.delete("ref_audio_file");
-
       try {
-        const res = await fetch("/api/v1/generate", {
-          method: "POST",
-          body: data,
-          headers: apiHeaders(),
-        });
+        const res = await fetch("/api/v1/generate", { method: "POST", body: data, headers: apiHeaders() });
         const job = await res.json();
         if (!res.ok) throw new Error(job.detail || JSON.stringify(job));
         if (job.status !== "succeeded" || !job.audio_url) {
-          throw new Error(job.error || job.status || "Không thể tạo file âm thanh");
+          throw new Error(job.error || job.status || "Không có audio_url");
         }
-
-        const cleanUrl = playableUrl(job.audio_url);
-        statusEl.textContent = "";
-        resultMeta.innerHTML = `
-          <strong>Engine:</strong> ${job.engine || engineInput.value} · 
-          <strong>Speaker:</strong> ${job.speaker} · 
-          <strong>Ngôn ngữ:</strong> ${job.language} <br>
-          <strong>Thời lượng:</strong> ${job.duration_seconds ? job.duration_seconds + "s" : "N/A"} · 
-          <strong>Sample rate:</strong> ${job.sample_rate || 24000}Hz
-        `;
-        player.src = cleanUrl;
-        downloadLink.href = cleanUrl;
-        downloadLink.download = `speech_${job.job_id}.wav`;
-        copyUrlBtn.onclick = () => {
-          navigator.clipboard.writeText(window.location.origin + cleanUrl);
-          alert("Đã copy Audio URL vào clipboard!");
-        };
-        resultCard.style.display = "block";
+        statusEl.textContent =
+          "Xong.\n" + job.speaker + " · " + job.language +
+          (job.duration_seconds ? " · " + job.duration_seconds + "s" : "") +
+          "\naudio_url: " + playableUrl(job.audio_url);
+        player.src = playableUrl(job.audio_url);
+        player.style.display = "block";
         player.play().catch(() => {});
       } catch (err) {
-        statusEl.textContent = "❌ Lỗi: " + err.message;
+        statusEl.textContent = "Lỗi: " + err.message;
       } finally {
         btn.disabled = false;
       }

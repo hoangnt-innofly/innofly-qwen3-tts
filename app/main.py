@@ -23,10 +23,10 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="OmniVoice & Qwen3-TTS API",
-    description="Multilingual Text-to-Speech API powered by OmniVoice (VoiceStudio 646 languages) & Qwen3-TTS. "
+    title="Qwen3-TTS 1.7B API",
+    description="Demo backend: multilingual text-to-speech with Qwen3-TTS-12Hz-1.7B-CustomVoice. "
     "All `/api/v1/*` routes require header `api-key` matching `SECRET_API_KEY`.",
-    version="0.2.0",
+    version="0.1.0",
     lifespan=lifespan,
     swagger_ui_parameters={"persistAuthorization": True},
 )
